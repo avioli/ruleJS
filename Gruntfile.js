@@ -164,7 +164,7 @@ module.exports = function (grunt) {
             port: 8080,
             hostname: "0.0.0.0",
             base: "",
-            keepalive: true
+            // keepalive: true
           }
         }
       }
@@ -172,7 +172,9 @@ module.exports = function (grunt) {
   );
 
   // DEFAULT TASKS
-  grunt.registerTask('default', ['jison', 'copy', 'replace:dist', 'clean', 'concat', 'uglify']);
+  grunt.registerTask('default', ['build', 'uglify']);
+  grunt.registerTask('build', ['jison', 'copy', 'replace:dist', 'clean', 'concat']);
+  grunt.registerTask('dev', ['build', 'connect', 'watch']);
 
   grunt.registerTask('test', ['default', 'jasmine']);
   grunt.registerTask('start', ['default', 'connect']);
