@@ -59,6 +59,10 @@ module.exports = function (grunt) {
               dest: 'dist/js/ruleJS.js'
             },
             {
+              src: 'src/js/ruleJSCore.js',
+              dest: 'dist/js/ruleJSCore.js'
+            },
+            {
               src: 'src/parser/parser.js',
               dest: 'dist/js/parser.js'
             }
@@ -88,9 +92,17 @@ module.exports = function (grunt) {
               'dist/js/parser.js',
               'dist/js/ruleJS.js'
             ],
+            'dist/full/ruleJS.parser.core.js': [
+              'dist/js/parser.js',
+              'dist/js/ruleJSCore.js'
+            ],
             'dist/full/ruleJS.all.full.js': [
               'dist/full/ruleJS.lib.full.js',
               'dist/full/ruleJS.parser.full.js'
+            ],
+            'dist/full/ruleJS.all.core.js': [
+              'dist/full/ruleJS.lib.full.js',
+              'dist/full/ruleJS.parser.core.js'
             ]
           }
         }

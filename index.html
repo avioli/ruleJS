@@ -6,7 +6,7 @@
 
   <!-- Latest compiled and minified CSS -->
   <link rel="stylesheet" href="//maxcdn.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap.min.css">
-  <script src="dist/full/ruleJS.all.full.min.js"></script>
+  <script src="dist/full/ruleJS.all.core.js"></script>
 
   <style>
     .table input[type=text] {
@@ -56,7 +56,7 @@
       <p class="clearfix"></p>
 
       <p>Try to insert formula into input field by typing ex. <code>=A1</code>. It's possible to edit formula by double clicked on input field.</p>
-      <table class="table table-bordered">
+      <table class="table table-bordered" id="demo1-table">
         <thead>
         <tr>
           <td></td>
@@ -86,7 +86,7 @@
           <td><input type="text" id="H1" value="8"></td>
           <td><input type="text" id="I1" value="9"></td>
           <td><input type="text" id="J1" value="10"></td>
-          <td>SUM(A1:D1, H1)</td>
+          <td id="K1-formula">SUM(A1:D1, H1)</td>
           <td><span id="K1" data-formula="SUM(A1:D1, H1)"></span></td>
         </tr>
         <tr>
@@ -101,7 +101,7 @@
           <td><input type="text" id="H2" value="20"></td>
           <td><input type="text" id="I2" value="200"></td>
           <td><input type="text" id="J2" value="-100"></td>
-          <td>MAX(A2:J2)</td>
+          <td id="K2-formula">MAX(A2:J2)</td>
           <td><span id="K2" data-formula="MAX(A2:J2)"></span></td>
         </tr>
         <tr>
@@ -116,7 +116,7 @@
           <td><input type="text" id="H3" value="301"></td>
           <td><input type="text" id="I3" value="-1"></td>
           <td><input type="text" id="J3" value="-20"></td>
-          <td>MIN(A3:J3)</td>
+          <td id="K3-formula">MIN(A3:J3)</td>
           <td><span id="K3" data-formula="MIN(A3:J3)"></span></td>
         </tr>
         <tr>
@@ -131,7 +131,7 @@
           <td><input type="text" id="H4" value="25"></td>
           <td><input type="text" id="I4" value="45"></td>
           <td><input type="text" id="J4" value="23"></td>
-          <td>AVERAGE(A4:J4):</td>
+          <td id="K4-formula">AVERAGE(A4:J4):</td>
           <td><span id="K4" data-formula="AVERAGE(A4:J4)"></span></td>
         </tr>
         <tr>
@@ -146,7 +146,7 @@
           <td><input type="text" id="H5" value="10"></td>
           <td><input type="text" id="I5" value="4"></td>
           <td><input type="text" id="J5" value="10"></td>
-          <td>SUMIF(A5:J5,'>5')</td>
+          <td id="K5-formula">SUMIF(A5:J5,'>5')</td>
           <td><span id="K5" data-formula="SUMIF(A5:J5,'>5')"></span></td>
         </tr>
         </tbody>
@@ -159,11 +159,84 @@
 <script>
   (function () {
 
-    var rules = new ruleJS('demo1');
+    var data = [
+    //[ "A", "B", "C", "D", "E", "F", "G", "H", "I",  "J", "K" ]
+      [   1,   2,   3,   4,   5,   6,   7,   8,   9,   10, "=SUM(A4:D1, H1)" ],
+      [  -1, -10,   2,   4, 100,   1,  50,  20, 200, -100, "=MAX(A2:J2)" ],
+      [  -1, -40, -53,   1,  10,  30,  10, 301,  -1,  -20, "=MIN(A3:J3)" ],
+      [  20,  50, 100,  20,   1,   5,  15,  25,  45,   23, "=AVERAGE(A4:J4)" ],
+      [   0,  10,   1,  10,   2,  10,   3,  10,   4,   10, "=SUMIF(A5:J5,'>5')" ],
+    ];
+
+    var initialised = false;
+    var rules = new ruleJSCore(data);
     rules.init();
+    // rules.setValue('B1', 100);
+
+    var setValue = function (id, value) {
+      var node = document.getElementById(id);
+      var nodeName = node.nodeName.toUpperCase();
+
+      if (['INPUT'].indexOf(nodeName) === -1) {
+        node.innerText = value;
+      }
+
+      node.value = value;
+
+      if (initialised) {
+        node.parentNode.style.backgroundColor = 'lightgreen';
+        setTimeout(function() {
+          node.parentNode.style.backgroundColor = 'transparent';
+        }, 300);
+      }
+    };
+
+    var render = function(dependantIds) {
+      var calculated = rules.getAllValues();
+
+      for (var j = 0; j < calculated.length; j++) {
+        for (var k = 0; k < calculated[j].length; k++) {
+          var item = calculated[j][k],
+              shouldUpdate = ('undefined' === typeof dependantIds) || dependantIds.indexOf(item.id) !== -1;
+
+          if (shouldUpdate) {
+            // console.log('Updating: ' + item.id);
+            setValue(item.id, item.value || item.error);
+            if (! dependantIds && item.formula) {
+              setValue(item.id + '-formula', item.formula);
+            }
+          }
+        }
+      }
+    };
+
+    document.getElementById('demo1-table').addEventListener('change', function(e) {
+      if (e.target && e.target.nodeName == "INPUT") {
+        var item = rules.setValue(e.target.id, e.target.value);
+        var dependantIds = rules.getDependantIds(item.id);
+        render(dependantIds);
+      }
+    });
+
+    document.getElementById('demo1-table').addEventListener('mouseover', function(e) {
+      if (e.target && e.target.nodeName == "INPUT") {
+        var item = rules.getValue(e.target.id);
+        var dependantIds = rules.getDependantIds(item.id);
+        for (var j = 0; j < dependantIds.length; j++) {
+          var el = document.getElementById(dependantIds[j]);
+          el.parentNode.style.backgroundColor = 'yellow';
+          setTimeout(function() {
+            el.parentNode.style.backgroundColor = 'transparent';
+          }, 1000);
+        }
+      }
+    });
+
+    render();
+    initialised = true;
 
     var button = document.querySelector('button'),
-        input = document.querySelector('input[type=text]'),
+        input = document.querySelector('#X1'),
         result = document.querySelector('#result'),
         error = document.querySelector('#error');
 
@@ -172,14 +245,14 @@
       error.parentNode.style.display = 'none';
 
       var formula = input.value;
-      var parsed = rules.parse(formula, input);
+      var parsed = rules.parse(formula);
 
-      if (parsed.result !== null) {
+      if (parsed.value !== null) {
         result.parentNode.style.display = '';
-        result.innerText = parsed.result;
+        result.innerText = parsed.value;
       }
 
-      if (parsed.error) {
+      if (parsed.error !== null) {
         error.parentNode.style.display = '';
         error.innerText = parsed.error;
       }
