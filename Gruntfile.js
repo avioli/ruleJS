@@ -1,3 +1,5 @@
+console.error('HUGE REFACTOR: Do not use');
+process.exit(1);
 /**
  * Installation:
  * 1. Install Grunt CLI (`npm install -g grunt-cli`)

@@ -2,6 +2,8 @@ RuleJS
 =======
 Like excel library to parse formulas ([demo](http://handsontable.github.io/ruleJS/)).
 
+__HUGE REFACTOR__: Work in progress
+
 ## How to run
 - npm install
 - grunt start (open in browser http://localhost:8080)
