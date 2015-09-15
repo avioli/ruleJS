@@ -386,14 +386,8 @@ var ruleJSCore = (function (dataSource) {
      */
     var calculateItemFormula = function (formula, item) {
       // to avoid double translate formulas, update item data in parser
-      var parsed = parse(formula, item),
-          value = parsed.value,
-          error = parsed.error;
-
-      return instance.matrix.updateItem(item, {
-        value: value,
-        error: error
-      });
+      var parsed = parse(formula, item);
+      return instance.matrix.updateItem(item, parsed);
     };
 
     this.depsInFormula = function (item) {
@@ -822,13 +816,18 @@ var ruleJSCore = (function (dataSource) {
         };
       }
 
-      for (var column = cols.start; column <= cols.end; column++) {
-        for (var row = rows.start; row <= rows.end; row++) {
+      for (var row = rows.start, j = 0; row <= rows.end; row++, j++) {
+        for (var column = cols.start, k = 0; column <= cols.end; column++, k++) {
           var cellIndex = instance.utils.toChar(column) + (row + 1),
               cellValue = instance.helper.cellValue.call(this, cellIndex);
 
-          result.index.push(cellIndex);
-          result.value.push(cellValue);
+          if ('undefined' === typeof result.index[j]) {
+            result.index[j] = [];
+            result.value[j] = [];
+          }
+
+          result.index[j][k] = cellIndex;
+          result.value[j][k] = cellValue;
         }
       }
 
@@ -883,11 +882,18 @@ var ruleJSCore = (function (dataSource) {
      * PARSER callback
      */
     number: function (num) {
+      if (num === null) {
+        return 0;
+      }
+
       switch (typeof num) {
+        case 'undefined':
+          return 0;
         case 'number':
           return num;
         case 'string':
           if (!isNaN(num)) {
+            if (num.length === 0) return 0;
             return num.indexOf('.') > -1 ? parseFloat(num) : parseInt(num, 10);
           }
       }
@@ -930,6 +936,13 @@ var ruleJSCore = (function (dataSource) {
      * PARSER callback
      */
     specialMatch: function (type, exp1, exp2) {
+      if (instance.helper.ISERROR(exp1)) {
+        return exp1;
+      }
+
+      if (instance.helper.ISERROR(exp2)) {
+        return exp2;
+      }
       var result;
 
       switch (type) {
@@ -938,6 +951,24 @@ var ruleJSCore = (function (dataSource) {
           break;
       }
       return result;
+    },
+
+    ISERR: function (value) {
+      switch (value) {
+        case '#DIV/0!':
+        case '#VALUE!':
+        case '#NUM!':
+        case '#NULL!':
+        case '#REF!':
+        case '#NAME?':
+          return true;
+        default:
+          return false;
+      }
+    },
+
+    ISERROR: function (value) {
+      return instance.helper.ISERR(value) || value === '#N/A';
     },
 
     /**
@@ -951,6 +982,14 @@ var ruleJSCore = (function (dataSource) {
      * PARSER callback
      */
     logicMatch: function (type, exp1, exp2) {
+      if (instance.helper.ISERROR(exp1)) {
+        return exp1;
+      }
+
+      if (instance.helper.ISERROR(exp2)) {
+        return exp2;
+      }
+
       var result;
 
       switch (type) {
@@ -971,15 +1010,12 @@ var ruleJSCore = (function (dataSource) {
           break;
 
         case '<=':
-          result = (exp1 === exp2);
+          result = (exp1 <= exp2);
           break;
 
-        case '<>':
-          result = (exp1 != exp2);
-          break;
-
+        case '<>': /* falls through */
         case 'NOT':
-          result = (exp1 != exp2);
+          result = (exp1 !== exp2);
           break;
       }
 
@@ -997,6 +1033,13 @@ var ruleJSCore = (function (dataSource) {
      * PARSER callback
      */
     mathMatch: function (type, number1, number2) {
+      if (instance.helper.ISERROR(number1)) {
+        return number1;
+      }
+
+      if (instance.helper.ISERROR(number2)) {
+        return number2;
+      }
       var result;
 
       number1 = helper.number(number1);
@@ -1051,9 +1094,15 @@ var ruleJSCore = (function (dataSource) {
       fn = fn.toUpperCase();
       args = args || [];
 
+      // TODO: move to Formula.js
+      if (fn !== 'IFERROR' && _.some(_.flatten(args), instance.helper.ISERROR)) {
+        return Error('VALUE');
+      }
+
       if (instance.helper.SUPPORTED_FORMULAS.indexOf(fn) > -1) {
         if (instance.formulas[fn]) {
-          return instance.formulas[fn].apply(this, args);
+          var value = instance.formulas[fn].apply(this, args);
+          return value;
         }
       }
 
@@ -1183,13 +1232,13 @@ var ruleJSCore = (function (dataSource) {
         var cellId = instance.utils.translateCellCoords({row: formulaItem.row, col: formulaItem.col});
 
         // update dependencies
-        instance.matrix.updateItem(cellId, {deps: cells.index});
+        instance.matrix.updateItem(cellId, {deps: _.flatten(cells.index)});
 
       } else {
 
         // update dependencies
         instance.matrix.updateItem(formulaItem, {
-          deps: cells.index
+          deps: _.flatten(cells.index)
         });
       }
 
@@ -1403,15 +1452,28 @@ var ruleJSCore = (function (dataSource) {
     instance.matrix.recalculate();
   };
 
+  var options = {
+    trackFormulasCoverage: false,
+    supportedFormulas: 'all',
+  };
+
   /**
    * Initial method, create formulas, parser and matrix objects
    */
-  var init = function () {
+  var init = function (args) {
+    options = _.extend({}, options, args);
+
     instance = this;
 
     parser = new FormulaParser(instance);
 
     instance.formulas = Formula;
+
+    if (options.supportedFormulas !== 'all' && _.isArray(options.supportedFormulas)) {
+      var supportedFormulas = _.filter(options.supportedFormulas, _.isString);
+      instance.helper.SUPPORTED_FORMULAS = supportedFormulas;
+    }
+
     instance.matrix = new Matrix();
 
     // will hold custom functions
