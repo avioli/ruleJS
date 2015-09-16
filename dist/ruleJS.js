@@ -71,11 +71,14 @@ return /******/ (function(modules) { // webpackBootstrap
 /***/ function(module, exports, __webpack_require__) {
 
 	var _ = __webpack_require__(2);
-	var Formula = __webpack_require__(4);
-	var FormulaParser = __webpack_require__(23).FormulaParser;
-	var Exception = __webpack_require__(25);
+	var utils = __webpack_require__(4);
+	var FormulaJS = __webpack_require__(5);
+	var FormulaParser = __webpack_require__(24);
+	var Exception = __webpack_require__(26);
+	var ParserDelegate = __webpack_require__(27);
+	var Matrix = __webpack_require__(28);
 
-	exports.core = function (dataSource) {
+	module.exports.core = function (dataSource) {
 	  'use strict';
 
 	  /**
@@ -95,1195 +98,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	   *
 	   * @type {Parser|*|{}}
 	   */
-	  var parser = {};
+	  var parser;
 
 	  /**
-	   * Matrix collection for each form, contains cache of all items in the dataSource
-	   */
-	  var Matrix = function () {
-
-	    /**
-	     * Single item (cell) object
-	     *
-	     * @type {{id: string, formula: string, value: string, error: string, deps: Array}}
-	     */
-	    var item = {
-	      id: '',
-	      formula: '',
-	      value: '',
-	      error: '',
-	      deps: []
-	    };
-
-	    /**
-	     * Array of items
-	     *
-	     * @type {Array}
-	     */
-	    this.data = [];
-
-	    /**
-	     * Recalculates all matrix formulas
-	     *
-	     * @returns {Array} the recalculated matrix
-	     */
-	    this.recalculate = function () {
-	      return instance.matrix.data.map(function (item) {
-	        if (item.formula) {
-	          return calculateItemFormula(item.formula, item);
-	        }
-	        return item;
-	      });
-	    };
-
-	    /**
-	     * Get item from data array
-	     *
-	     * @param {String} id
-	     * @returns {*}
-	     */
-	    this.getItem = function (id) {
-	      return instance.matrix.data.filter(function (item) {
-	        return item.id === id;
-	      })[0];
-	    };
-
-	    /**
-	     * Remove item from data array
-	     *
-	     * @param {String} id
-	     */
-	    this.removeItem = function (id) {
-	      instance.matrix.data = instance.matrix.data.filter(function (item) {
-	        return item.id !== id;
-	      });
-	    };
-
-	    /**
-	     * Remove items from data array in col
-	     *
-	     * @param {Number} col
-	     */
-	    this.removeItemsInCol = function (col) {
-	      instance.matrix.data = instance.matrix.data.filter(function (item) {
-	        return item.col !== col;
-	      });
-	    };
-
-	    /**
-	     * Remove items from data array in row
-	     *
-	     * @param {Number} row
-	     */
-	    this.removeItemsInRow = function (row) {
-	      instance.matrix.data = instance.matrix.data.filter(function (item) {
-	        return item.row !== row;
-	      })
-	    };
-
-	    /**
-	     * Remove items from data array below col
-	     *
-	     * @param col
-	     */
-	    this.removeItemsBelowCol = function (col) {
-	      instance.matrix.data = instance.matrix.data.filter(function (item) {
-	        return item.col < col;
-	      });
-	    };
-
-	    /**
-	     * Remove items from data array below row
-	     *
-	     * @param row
-	     */
-	    this.removeItemsBelowRow = function (row) {
-	      instance.matrix.data = instance.matrix.data.filter(function (item) {
-	        return item.row < row;
-	      })
-	    };
-
-	    /**
-	     * Update item properties
-	     *
-	     * @param {Object|String} item or id
-	     * @param {Object} props
-	     * @returns {item} the updated item
-	     */
-	    this.updateItem = function (item, props) {
-	      if (instance.utils.isString(item)) {
-	        item = instance.matrix.getItem(item);
-	      }
-
-	      if (item && props) {
-	        for (var p in props) {
-	          if (item[p] && instance.utils.isArray(item[p])) {
-	            if (instance.utils.isArray(props[p])) {
-	              props[p].forEach(function (i) {
-	                if (item[p].indexOf(i) === -1) {
-	                  item[p].push(i);
-	                }
-	              });
-	            } else {
-
-	              if (item[p].indexOf(props[p]) === -1) {
-	                item[p].push(props[p]);
-	              }
-	            }
-	          } else {
-	            item[p] = props[p];
-	          }
-	        }
-	      }
-	      return item;
-	    };
-
-	    /**
-	     * Add item to data array
-	     *
-	     * @param {Object} item
-	     */
-	    this.addItem = function (item) {
-	      var cellId = item.id;
-
-	      if (! instance.utils.isSet(item.row) || ! instance.utils.isSet(item.col)) {
-	        var coords = instance.utils.cellCoords(cellId);
-	        // TODO: Make immutable
-	        item.row = coords.row;
-	        item.col = coords.col;
-	      }
-
-	      var cellExists = instance.matrix.getItem(cellId);
-
-	      if (! cellExists) {
-	        instance.matrix.data.push(item);
-	      } else {
-	        instance.matrix.updateItem(cellExists, item);
-	      }
-
-	      return cellExists || item;
-	    };
-
-	    /**
-	     * Get references items to column
-	     *
-	     * @param {Number} col
-	     * @returns {Array}
-	     *
-	     * TODO: remove if not used
-	     */
-	    this.getRefItemsToColumn = function (col) {
-	      var result = [];
-
-	      if (!instance.matrix.data.length) {
-	        return result;
-	      }
-
-	      instance.matrix.data.forEach(function (item) {
-	        if (item.deps) {
-	          var deps = item.deps.filter(function (cell) {
-
-	            var alpha = instance.utils.getCellAlphaNum(cell).alpha,
-	              num = instance.utils.toNum(alpha);
-
-	            return num >= col;
-	          });
-
-	          if (deps.length > 0 && result.indexOf(item.id) === -1) {
-	            result.push(item.id);
-	          }
-	        }
-	      });
-
-	      return result;
-	    };
-
-	    /**
-	     * Get references items to row
-	     *
-	     * @param {Number} row
-	     * @returns {Array}
-	     *
-	     * TODO: remove if not used
-	     */
-	    this.getRefItemsToRow = function (row) {
-	      var result = [];
-
-	      if (!instance.matrix.data.length) {
-	        return result;
-	      }
-
-	      instance.matrix.data.forEach(function (item) {
-	        if (item.deps) {
-	          var deps = item.deps.filter(function (cell) {
-	            var num = instance.utils.getCellAlphaNum(cell).num;
-	            return num > row;
-	          });
-
-	          if (deps.length > 0 && result.indexOf(item.id) === -1) {
-	            result.push(item.id);
-	          }
-	        }
-	      });
-
-	      return result;
-	    };
-
-	    /**
-	     * Get cell dependencies
-	     *
-	     * @param {String} id
-	     * @returns {Array}
-	     */
-	    this.getDependencies = function (id) {
-	      // console.log('matrix.getDependencies', arguments);
-	      /**
-	       * Get dependencies by id
-	       *
-	       * @param {String} id
-	       * @returns {Array}
-	       */
-	      var getDependencies = function (id) {
-	        // console.log('getDependencies', arguments);
-	        // TODO: convert to use reduce()
-
-	        var deps = [];
-
-	        instance.matrix.data.forEach(function (item) {
-	          if (item.deps && item.deps.length && item.deps.indexOf(id) > -1 && deps.indexOf(item.id) === -1) {
-	            deps.push(item.id);
-	          }
-	        });
-	        // console.log('deps', deps);
-
-	        return deps;
-	      };
-
-	      /**
-	       * Get all dependencies
-	       *
-	       * @param {String} id
-	       */
-	      var getDependenciesDeep = function (id, accumulator) {
-	        // console.log('getDependenciesDeep', arguments);
-
-	        getDependencies(id).forEach(function (refId) {
-	          if (accumulator.indexOf(refId) === -1) {
-	            accumulator.push(refId);
-
-	            var item = instance.matrix.getItem(refId);
-	            if (item.deps && item.deps.length) {
-	              getDependenciesDeep(refId, accumulator);
-	            }
-	          }
-	        });
-
-	        return accumulator;
-	      };
-
-	      return getDependenciesDeep(id, []);
-	    };
-
-	    /**
-	     * Calculate item formula
-	     *
-	     * @param {String} formula
-	     * @param {item} reference item
-	     * @returns {item} the updated item
-	     */
-	    var calculateItemFormula = function (formula, item) {
-	      // to avoid double translate formulas, update item data in parser
-	      var parsed = parse(formula, item);
-	      return instance.matrix.updateItem(item, parsed);
-	    };
-
-	    this.depsInFormula = function (item) {
-
-	      var formula = item.formula,
-	          deps = item.deps;
-
-	      if (deps) {
-	        deps = deps.filter(function (id) {
-	          return formula.indexOf(id) !== -1;
-	        });
-
-	        return deps.length > 0;
-	      }
-
-	      return false;
-	    };
-
-	    /**
-	     * Scan the dataSource and build the calculation matrix
-	     *
-	     * @param {Array} dataSource array of arrays
-	     */
-	    this.scan = function (dataSource) {
-	      dataSource.forEach(function (row, j) {
-	        row.forEach(function (data, k) {
-	          var id = instance.utils.translateCellCoords({row: j, col: k}),
-	              formula = null,
-	              value = null;
-
-	          if (instance.utils.isFormula(data)) {
-	            formula = data.substr(1);
-	          } else {
-	            value = data;
-	          }
-
-	          instance.matrix.addItem({
-	            id: id,
-	            row: j,
-	            col: k,
-	            value: value,
-	            formula: formula
-	          });
-	        });
-	      });
-	    };
-	  };
-
-	  /**
-	   * Utils methods
+	   * Matrix object
 	   *
-	   * @type {{isArray: isArray, toNum: toNum, toChar: toChar, cellCoords: cellCoords}}
+	   * @type {Matrix}
 	   */
-	  var utils = {
-	    /**
-	     * Check if value is array
-	     *
-	     * @param value
-	     * @returns {boolean}
-	     *
-	     * PARSER callback
-	     */
-	    isArray: function (value) {
-	      return Object.prototype.toString.call(value) === '[object Array]';
-	    },
-
-	    /**
-	     * Check if value is number
-	     *
-	     * @param value
-	     * @returns {boolean}
-	     */
-	    isNumber: function (value) {
-	      return Object.prototype.toString.call(value) === '[object Number]';
-	    },
-
-	    /**
-	     * Check if value is string
-	     *
-	     * @param value
-	     * @returns {boolean}
-	     */
-	    isString: function (value) {
-	      return Object.prototype.toString.call(value) === '[object String]';
-	    },
-
-	    /**
-	     * Check if value is function
-	     *
-	     * @param value
-	     * @returns {boolean}
-	     */
-	    isFunction: function (value) {
-	      return Object.prototype.toString.call(value) === '[object Function]';
-	    },
-
-	    /**
-	     * Check if value is undefined
-	     *
-	     * @param value
-	     * @returns {boolean}
-	     */
-	    isUndefined: function (value) {
-	      return Object.prototype.toString.call(value) === '[object Undefined]';
-	    },
-
-	    /**
-	     * Check if value is null
-	     *
-	     * @param value
-	     * @returns {boolean}
-	     */
-	    isNull: function (value) {
-	      return Object.prototype.toString.call(value) === '[object Null]';
-	    },
-
-	    /**
-	     * Check if value is set
-	     *
-	     * @param value
-	     * @returns {boolean}
-	     */
-	    isSet: function (value) {
-	      return !instance.utils.isUndefined(value) && !instance.utils.isNull(value);
-	    },
-
-	    /**
-	     * Check if value is cell
-	     *
-	     * @param {String} value
-	     * @returns {Boolean}
-	     */
-	    isCell: function (value) {
-	      return value.match(/^[A-Za-z]+[0-9]+/) ? true : false;
-	    },
-
-	    /**
-	     * Check if value is formula
-	     *
-	     * @param {String} value
-	     * @returns {Boolean}
-	     */
-	    isFormula: function (value) {
-	      return instance.utils.isString(value) && value.length > 1 && value.substr(0, 1) === '=';
-	    },
-
-	    /**
-	     * Get row name and column number
-	     *
-	     * @param cell
-	     * @returns {{alpha: string, num: number}}
-	     */
-	    getCellAlphaNum: function (cell) {
-	      var num = cell.match(/\d+$/),
-	          alpha = cell.replace(num, '');
-
-	      return {
-	        alpha: alpha,
-	        num: parseInt(num[0], 10)
-	      }
-	    },
-
-	    /**
-	     * Change row cell index A1 -> A2
-	     *
-	     * @param {String} cell
-	     * @param {Number} counter
-	     * @returns {String}
-	     */
-	    changeRowIndex: function (cell, counter) {
-	      var alphaNum = instance.utils.getCellAlphaNum(cell),
-	          alpha = alphaNum.alpha,
-	          col = alpha,
-	          row = parseInt(alphaNum.num + counter, 10);
-
-	      if (row < 1) {
-	        row = 1;
-	      }
-
-	      return col + '' + row;
-	    },
-
-	    /**
-	     * Change col cell index A1 -> B1 Z1 -> AA1
-	     *
-	     * @param {String} cell
-	     * @param {Number} counter
-	     * @returns {String}
-	     */
-	    changeColIndex: function (cell, counter) {
-	      var alphaNum = instance.utils.getCellAlphaNum(cell),
-	          alpha = alphaNum.alpha,
-	          col = instance.utils.toChar(parseInt(instance.utils.toNum(alpha) + counter, 10)),
-	          row = alphaNum.num;
-
-	      if (!col || col.length === 0) {
-	        col = 'A';
-	      }
-
-	      var fixedCol = alpha[0] === '$' || false,
-	          fixedRow = alpha[alpha.length - 1] === '$' || false;
-
-	      col = (fixedCol ? '$' : '') + col;
-	      row = (fixedRow ? '$' : '') + row;
-
-	      return col + '' + row;
-	    },
-
-	    /**
-	     * Change formula
-	     *
-	     * @param  {String} formula  The formula to change
-	     * @param  {int}    delta    A delta
-	     * @param  {Object} change   Col/Row object
-	     * @return {Array}           The new match
-	     *
-	     * TODO: Not used
-	     */
-	    changeFormula: function (formula, delta, change) {
-	      if (!delta) {
-	        delta = 1;
-	      }
-
-	      return formula.replace(/(\$?[A-Za-z]+\$?[0-9]+)/g, function (match) {
-	        var alphaNum = instance.utils.getCellAlphaNum(match),
-	            alpha = alphaNum.alpha,
-	            num = alphaNum.num;
-
-	        if (instance.utils.isNumber(change.col)) {
-	          num = instance.utils.toNum(alpha);
-
-	          if (change.col <= num) {
-	            return instance.utils.changeColIndex(match, delta);
-	          }
-	        }
-
-	        if (instance.utils.isNumber(change.row)) {
-	          if (change.row < num) {
-	            return instance.utils.changeRowIndex(match, delta);
-	          }
-	        }
-
-	        return match;
-	      });
-	    },
-
-	    /**
-	     * Update formula cells
-	     *
-	     * @param {String} formula
-	     * @param {String} direction
-	     * @param {Number} delta
-	     * @returns {String}
-	     */
-	    updateFormula: function (formula, direction, delta) {
-	      var type,
-	          counter;
-
-	      // left, right -> col
-	      if (['left', 'right'].indexOf(direction) !== -1) {
-	        type = 'col';
-	      } else if (['up', 'down'].indexOf(direction) !== -1) {
-	        type = 'row'
-	      }
-
-	      // down, up -> row
-	      if (['down', 'right'].indexOf(direction) !== -1) {
-	        counter = delta * 1;
-	      } else if(['up', 'left'].indexOf(direction) !== -1) {
-	        counter = delta * (-1);
-	      }
-
-	      if (type && counter) {
-	        return formula.replace(/(\$?[A-Za-z]+\$?[0-9]+)/g, function (match) {
-
-	          var alpha = instance.utils.getCellAlphaNum(match).alpha;
-
-	          var fixedCol = alpha[0] === '$' || false,
-	              fixedRow = alpha[alpha.length - 1] === '$' || false;
-
-	          if (type === 'row' && fixedRow) {
-	            return match;
-	          }
-
-	          if (type === 'col' && fixedCol) {
-	            return match;
-	          }
-
-	          return (type === 'row' ? instance.utils.changeRowIndex(match, counter) : instance.utils.changeColIndex(match, counter));
-	        });
-	      }
-
-	      return formula;
-	    },
-
-	    /**
-	     * Convert string char to number e.g A => 0, Z => 25, AA => 27
-	     *
-	     * @param {String} chr
-	     * @returns {Number}
-	     */
-	    toNum: function (chr) {
-	//      chr = instance.utils.clearFormula(chr).split('');
-	//
-	//      var base = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z"],
-	//          i, j, result = 0;
-	//
-	//      for (i = 0, j = chr.length - 1; i < chr.length; i += 1, j -= 1) {
-	//        result += Math.pow(base.length, j) * (base.indexOf(chr[i]));
-	//      }
-	//
-	//      return result;
-
-	      chr = instance.utils.clearFormula(chr);
-	      var base = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', i, j, result = 0;
-
-	      for (i = 0, j = chr.length - 1; i < chr.length; i += 1, j -= 1) {
-	        result += Math.pow(base.length, j) * (base.indexOf(chr[i]) + 1);
-	      }
-
-	      if (result) {
-	        --result;
-	      }
-
-	      return result;
-	    },
-
-	    /**
-	     * Convert number to string char, e.g 0 => A, 25 => Z, 26 => AA
-	     *
-	     * @param {Number} num
-	     * @returns {String}
-	     */
-	    toChar: function (num) {
-	      var s = '';
-
-	      while (num >= 0) {
-	        s = String.fromCharCode(num % 26 + 97) + s;
-	        num = Math.floor(num / 26) - 1;
-	      }
-
-	      return s.toUpperCase();
-	    },
-
-	    /**
-	     * Get cell coordinates
-	     *
-	     * @param {String} cell A1
-	     * @returns {{row: Number, col: number}}
-	     */
-	    cellCoords: function (cell) {
-	      var num = cell.match(/\d+$/),
-	          alpha = cell.replace(num, '');
-
-	      return {
-	        row: parseInt(num[0], 10) - 1,
-	        col: instance.utils.toNum(alpha)
-	      };
-	    },
-
-	    /**
-	     * Remove $ from formula
-	     *
-	     * @param {String} formula
-	     * @returns {String|void}
-	     */
-	    clearFormula: function (formula) {
-	      return formula.replace(/\$/g, '');
-	    },
-
-	    /**
-	     * Translate cell coordinates to merged form {row:0, col:0} -> A1
-	     *
-	     * @param coords
-	     * @returns {string}
-	     */
-	    translateCellCoords: function (coords) {
-	      return instance.utils.toChar(coords.col) + '' + parseInt(coords.row + 1, 10);
-	    },
-
-	    /**
-	     * Iterate cell range and get theirs indexes and values
-	     *
-	     * @param {Object} startCell ex.: {row:1, col: 1}
-	     * @param {Object} endCell ex.: {row:10, col: 1}
-	     * @param {Function=} callback
-	     * @returns {{index: Array, value: Array}}
-	     */
-	    iterateCells: function (startCell, endCell, callback) {
-	      var result = {
-	        index: [], // list of cell index: A1, A2, A3
-	        value: []  // list of cell value
-	      };
-
-	      var cols = {
-	        start: 0,
-	        end: 0
-	      };
-
-	      if (endCell.col >= startCell.col) {
-	        cols = {
-	          start: startCell.col,
-	          end: endCell.col
-	        };
-	      } else {
-	        cols = {
-	          start: endCell.col,
-	          end: startCell.col
-	        };
-	      }
-
-	      var rows = {
-	        start: 0,
-	        end: 0
-	      };
-
-	      if (endCell.row >= startCell.row) {
-	        rows = {
-	          start: startCell.row,
-	          end: endCell.row
-	        };
-	      } else {
-	        rows = {
-	          start: endCell.row,
-	          end: startCell.row
-	        };
-	      }
-
-	      for (var row = rows.start, j = 0; row <= rows.end; row++, j++) {
-	        for (var column = cols.start, k = 0; column <= cols.end; column++, k++) {
-	          var cellIndex = instance.utils.toChar(column) + (row + 1),
-	              cellValue = instance.helper.cellValue.call(this, cellIndex);
-
-	          if ('undefined' === typeof result.index[j]) {
-	            result.index[j] = [];
-	            result.value[j] = [];
-	          }
-
-	          result.index[j][k] = cellIndex;
-	          result.value[j][k] = cellValue;
-	        }
-	      }
-
-	      if (instance.utils.isFunction(callback)) {
-	        return callback.apply(callback, [result]);
-	      } else {
-	        return result;
-	      }
-	    },
-
-	    sort: function (rev) {
-	      return function (a, b) {
-	        return ((a < b) ? -1 : ((a > b) ? 1 : 0)) * (rev ? -1 : 1);
-	      }
-	    }
-	  };
-
-	  /**
-	   * Helper with methods using by parser
-	   *
-	   * @type {{number: number, numberInverted: numberInverted, mathMatch: mathMatch, callFunction: callFunction}}
-	   */
-	  var helper = {
-	    /**
-	     * List of supported formulas
-	     */
-	    SUPPORTED_FORMULAS: [
-	      'ABS', 'ACCRINT', 'ACOS', 'ACOSH', 'ACOTH', 'AND', 'ARABIC', 'ASIN', 'ASINH', 'ATAN', 'ATAN2', 'ATANH', 'AVEDEV', 'AVERAGE', 'AVERAGEA', 'AVERAGEIF',
-	      'BASE', 'BESSELI', 'BESSELJ', 'BESSELK', 'BESSELY', 'BETADIST', 'BETAINV', 'BIN2DEC', 'BIN2HEX', 'BIN2OCT', 'BINOMDIST', 'BINOMDISTRANGE', 'BINOMINV', 'BITAND', 'BITLSHIFT', 'BITOR', 'BITRSHIFT', 'BITXOR',
-	      'CEILING', 'CEILINGMATH', 'CEILINGPRECISE', 'CHAR', 'CHISQDIST', 'CHISQINV', 'CODE', 'COMBIN', 'COMBINA', 'COMPLEX', 'CONCATENATE', 'CONFIDENCENORM', 'CONFIDENCET', 'CONVERT', 'CORREL', 'COS', 'COSH', 'COT', 'COTH', 'COUNT', 'COUNTA', 'COUNTBLANK', 'COUNTIF', 'COUNTIFS', 'COUNTIN', 'COUNTUNIQUE', 'COVARIANCEP', 'COVARIANCES', 'CSC', 'CSCH', 'CUMIPMT', 'CUMPRINC',
-	      'DATE', 'DATEVALUE', 'DAY', 'DAYS', 'DAYS360', 'DB', 'DDB', 'DEC2BIN', 'DEC2HEX', 'DEC2OCT', 'DECIMAL', 'DEGREES', 'DELTA', 'DEVSQ', 'DOLLAR', 'DOLLARDE', 'DOLLARFR',
-	      'E', 'EDATE', 'EFFECT', 'EOMONTH', 'ERF', 'ERFC', 'EVEN', 'EXACT', 'EXPONDIST',
-	      'FALSE', 'FDIST', 'FINV', 'FISHER', 'FISHERINV',
-	      'IF', 'INT', 'ISEVEN', 'ISODD',
-	      'LN', 'LOG', 'LOG10',
-	      'MAX', 'MAXA', 'MEDIAN', 'MIN', 'MINA', 'MOD',
-	      'NOT',
-	      'ODD', 'OR',
-	      'PI', 'POWER',
-	      'ROUND', 'ROUNDDOWN', 'ROUNDUP',
-	      'SIN', 'SINH', 'SPLIT', 'SQRT', 'SQRTPI', 'SUM', 'SUMIF', 'SUMIFS', 'SUMPRODUCT', 'SUMSQ', 'SUMX2MY2', 'SUMX2PY2', 'SUMXMY2',
-	      'TAN', 'TANH', 'TRUE', 'TRUNC',
-	      'XOR'
-	    ],
-
-	    /**
-	     * Get number
-	     *
-	     * @param  {Number|String} num
-	     * @returns {Number}
-	     *
-	     * PARSER callback
-	     */
-	    number: function (num) {
-	      if (num === null) {
-	        return 0;
-	      }
-
-	      switch (typeof num) {
-	        case 'undefined':
-	          return 0;
-	        case 'number':
-	          return num;
-	        case 'string':
-	          if (!isNaN(num)) {
-	            if (num.length === 0) return 0;
-	            return num.indexOf('.') > -1 ? parseFloat(num) : parseInt(num, 10);
-	          }
-	      }
-
-	      return num;
-	    },
-
-	    /**
-	     * Get string
-	     *
-	     * @param {Number|String} str
-	     * @returns {string}
-	     *
-	     * PARSER callback
-	     */
-	    string: function (str) {
-	      return str.substring(1, str.length - 1);
-	    },
-
-	    /**
-	     * Invert number
-	     *
-	     * @param num
-	     * @returns {Number}
-	     *
-	     * PARSER callback
-	     */
-	    numberInverted: function (num) {
-	      return this.number(num) * (-1);
-	    },
-
-	    /**
-	     * Match special operation
-	     *
-	     * @param {String} type
-	     * @param {String} exp1
-	     * @param {String} exp2
-	     * @returns {*}
-	     *
-	     * PARSER callback
-	     */
-	    specialMatch: function (type, exp1, exp2) {
-	      if (instance.helper.ISERROR(exp1)) {
-	        return exp1;
-	      }
-
-	      if (instance.helper.ISERROR(exp2)) {
-	        return exp2;
-	      }
-	      var result;
-
-	      switch (type) {
-	        case '&':
-	          result = exp1.toString() + exp2.toString();
-	          break;
-	      }
-	      return result;
-	    },
-
-	    ISERR: function (value) {
-	      switch (value) {
-	        case '#DIV/0!':
-	        case '#VALUE!':
-	        case '#NUM!':
-	        case '#NULL!':
-	        case '#REF!':
-	        case '#NAME?':
-	          return true;
-	        default:
-	          return false;
-	      }
-	    },
-
-	    ISERROR: function (value) {
-	      return instance.helper.ISERR(value) || value === '#N/A';
-	    },
-
-	    /**
-	     * Match logic operation
-	     *
-	     * @param {String} type
-	     * @param {String|Number} exp1
-	     * @param {String|Number} exp2
-	     * @returns {Boolean} result
-	     *
-	     * PARSER callback
-	     */
-	    logicMatch: function (type, exp1, exp2) {
-	      if (instance.helper.ISERROR(exp1)) {
-	        return exp1;
-	      }
-
-	      if (instance.helper.ISERROR(exp2)) {
-	        return exp2;
-	      }
-
-	      var result;
-
-	      switch (type) {
-	        case '=':
-	          result = (exp1 === exp2);
-	          break;
-
-	        case '>':
-	          result = (exp1 > exp2);
-	          break;
-
-	        case '<':
-	          result = (exp1 < exp2);
-	          break;
-
-	        case '>=':
-	          result = (exp1 >= exp2);
-	          break;
-
-	        case '<=':
-	          result = (exp1 <= exp2);
-	          break;
-
-	        case '<>': /* falls through */
-	        case 'NOT':
-	          result = (exp1 !== exp2);
-	          break;
-	      }
-
-	      return result;
-	    },
-
-	    /**
-	     * Match math operation
-	     *
-	     * @param {String} type
-	     * @param {Number} number1
-	     * @param {Number} number2
-	     * @returns {*}
-	     *
-	     * PARSER callback
-	     */
-	    mathMatch: function (type, number1, number2) {
-	      if (instance.helper.ISERROR(number1)) {
-	        return number1;
-	      }
-
-	      if (instance.helper.ISERROR(number2)) {
-	        return number2;
-	      }
-	      var result;
-
-	      number1 = helper.number(number1);
-	      number2 = helper.number(number2);
-
-	      if (isNaN(number1) || isNaN(number2)) {
-
-	        if (number1[0] === '=' || number2[0] === '=') {
-	          throw Error('NEED_UPDATE');
-	        }
-
-	        throw Error('VALUE');
-	      }
-
-	      switch (type) {
-	        case '+':
-	          result = number1 + number2;
-	          break;
-	        case '-':
-	          result = number1 - number2;
-	          break;
-	        case '/':
-	          result = number1 / number2;
-	          if (result == Infinity) {
-	            throw Error('DIV_ZERO');
-	          } else if (isNaN(result)) {
-	            throw Error('VALUE');
-	          }
-	          break;
-	        case '*':
-	          result = number1 * number2;
-	          break;
-	        case '^':
-	          result = Math.pow(number1, number2);
-	          break;
-	      }
-
-	      return result;
-	    },
-
-	    /**
-	     * Call function from formula
-	     *
-	     * @param {String} fn
-	     * @param {Array} args
-	     * @returns {*}
-	     *
-	     * PARSER callback
-	     */
-	    callFunction: function (fn, args) {
-	      // console.log('callFunction', arguments);
-	      fn = fn.toUpperCase();
-	      args = args || [];
-
-	      // TODO: move to Formula.js
-	      if (fn !== 'IFERROR' && _.some(_.flatten(args), instance.helper.ISERROR)) {
-	        return Error('VALUE');
-	      }
-
-	      if (instance.helper.SUPPORTED_FORMULAS.indexOf(fn) > -1) {
-	        if (instance.formulas[fn]) {
-	          var value = instance.formulas[fn].apply(this, args);
-	          return value;
-	        }
-	      }
-
-	      throw Error('NAME');
-	    },
-
-	    /**
-	     * Get variable from formula
-	     *
-	     * @param {Array} args
-	     * @returns {*}
-	     *
-	     * PARSER callback
-	     */
-	    callVariable: function (args) {
-	      // console.log('callVariable', arguments);
-	      args = args || [];
-	      var str = args[0];
-
-	      if (str) {
-	        str = str.toUpperCase();
-	        if (instance.formulas[str]) {
-	          return ((typeof instance.formulas[str] === 'function') ? instance.formulas[str].apply(this, args) : instance.formulas[str]);
-	        }
-	      }
-
-	      throw Error('NAME');
-	    },
-
-	    /**
-	     * Get cell value
-	     *
-	     * @param {String} id => A1 AA1
-	     * @returns {*}
-	     *
-	     * PARSER callback
-	     */
-	    cellValue: function (id) {
-	      // console.log('cellValue', arguments);
-	      var value,
-	          fnCellValue = instance.custom.cellValue,
-	          formulaItem = this,
-	          refItem = instance.matrix.getItem(id);
-
-	      // check if custom cellValue fn exists
-	      if (instance.utils.isFunction(fnCellValue)) {
-	        console.error('NOT COVERED');
-	        throw Error('TODO: NOT COVERED');
-
-	        var cellCoords = instance.utils.cellCoords(id),
-	            cellId = instance.utils.translateCellCoords({row: formulaItem.row, col: formulaItem.col});
-
-	        // get value
-	        value = refItem ? refItem.value : fnCellValue(cellCoords.row, cellCoords.col);
-
-	        if (instance.utils.isNull(value)) {
-	          value = 0;
-	        }
-
-	        if (cellId) {
-	          // update dependencies
-	          instance.matrix.updateItem(cellId, {
-	            deps: [id]
-	          });
-	        }
-
-	      } else {
-
-	        // get value
-	        value = refItem.value;
-
-	        // update dependencies
-	        instance.matrix.updateItem(formulaItem, {
-	          deps: [id]
-	        });
-	      }
-
-	      // check references error
-	      if (refItem && refItem.deps) {
-	        if (refItem.deps.indexOf(cellId) !== -1) {
-	          // Cyclic reference
-	          throw Error('REF');
-	        }
-	      }
-
-	      // check if any error occurs
-	      if (refItem && refItem.error) {
-	        throw Error(refItem.error);
-	      }
-
-	      // return value if is set
-	      if (instance.utils.isSet(value)) {
-	        var result = instance.helper.number(value);
-
-	        return !isNaN(result) ? result : value;
-	      }
-
-	      // cell is not available
-	      throw Error('NOT_AVAILABLE');
-	    },
-
-	    /**
-	     * Get cell range values
-	     *
-	     * @param {String} start cell A1
-	     * @param {String} end cell B3
-	     * @returns {Array}
-	     *
-	     * PARSER callback
-	     */
-	    cellRangeValue: function (start, end) {
-	      // console.log('cellRangeValue', arguments);
-	      var fnCellValue = instance.custom.cellValue,
-	          coordsStart = instance.utils.cellCoords(start),
-	          coordsEnd = instance.utils.cellCoords(end),
-	          formulaItem = this;
-
-	      // iterate cells to get values and indexes
-	      var cells = instance.utils.iterateCells.call(this, coordsStart, coordsEnd),
-	          result = [];
-
-	      // check if custom cellValue fn exists
-	      if (instance.utils.isFunction(fnCellValue)) {
-	        console.error('NOT COVERED');
-	        throw Error('TODO: NOT COVERED');
-
-	        var cellId = instance.utils.translateCellCoords({row: formulaItem.row, col: formulaItem.col});
-
-	        // update dependencies
-	        instance.matrix.updateItem(cellId, {deps: _.flatten(cells.index)});
-
-	      } else {
-
-	        // update dependencies
-	        instance.matrix.updateItem(formulaItem, {
-	          deps: _.flatten(cells.index)
-	        });
-	      }
-
-	      result.push(cells.value);
-	      return result;
-	    },
-
-	    /**
-	     * Get fixed cell value
-	     *
-	     * @param {String} id
-	     * @returns {*}
-	     *
-	     * PARSER callback
-	     */
-	    fixedCellValue: function (id) {
-	      // console.log('fixedCellValue', arguments);
-	      id = id.replace(/\$/g, '');
-	      return instance.helper.cellValue.call(this, id);
-	    },
-
-	    /**
-	     * Get fixed cell range values
-	     *
-	     * @param {String} start
-	     * @param {String} end
-	     * @returns {Array}
-	     *
-	     * PARSER callback
-	     */
-	    fixedCellRangeValue: function (start, end) {
-	      // console.log('fixedCellRangeValue', arguments);
-	      start = start.replace(/\$/g, '');
-	      end = end.replace(/\$/g, '');
-
-	      return instance.helper.cellRangeValue.call(this, start, end);
-	    }
-	  };
+	  var matrix;
 
 	  /**
 	   * Parse input string using parser
@@ -1293,6 +115,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	   * @param item
 	   */
 	  var parse = function (formula, item) {
+	    // console.log('parse', arguments);
 	    var result = null,
 	        error = null;
 
@@ -1300,11 +123,32 @@ return /******/ (function(modules) { // webpackBootstrap
 	      formula = formula.substr(1);
 	    }
 
+	    if (! parser || ! matrix) {
+	      throw new Error('Run init() first.');
+	    }
+
+	    // console.warn(formula);
+	    var marker, fml;
+	    // fml = 'IF(J154=0,IF(J142>E97,J142*E95,J142*E98),IF(J142>F97,J142*F95,J142*F98))*J149';
+	    // fml = 'IFERROR(INDEX(D1:D393,MATCH(D128,B1:B393,0),1),0)';
+	    // fml = 'F197*E71';
+	    // fml = 'IFERROR(IF(E58="Yes",SUM(J197:M197)/(SUM(J203:M203))*J203,J197),0)';
+	    // fml = '(J207*J139)+(J208*J138)';
+	    // fml = 'INDEX(G88:G92,MATCH(J142,E88:E92,1),1)*(J142-J143)';
+	    if (formula === fml) {
+	      window.marker = marker = true;
+	      console.log('parse/formula', formula);
+	      console.log('parse/item', item);
+	    }
+
 	    try {
-	      // console.log('parse', arguments);
 
 	      parser.setObj(item);
 	      result = parser.parse(formula);
+
+	      if (FormulaJS.ISERROR(result)) {
+	        error = result;
+	      }
 
 	      var id;
 
@@ -1312,15 +156,17 @@ return /******/ (function(modules) { // webpackBootstrap
 	        id = item.id;
 	      }
 
-	      var deps = instance.matrix.getDependencies(id);
+	      var deps = matrix.getDependencies(id);
+	      marker && console.error('deps:');
+	      marker && console.error(deps);
 
 	      if (deps.indexOf(id) !== -1) {
 	        // cyclic reference
-	        console.error('CYCLIC REFERENCE', id);
+	        console.error('CYCLIC REFERENCE', id, JSON.stringify(deps));
 	        result = null;
 
-	        deps.forEach(function (id) {
-	          instance.matrix.updateItem(id, {
+	        _.forEach(deps, function (id) {
+	          matrix.updateItem(id, {
 	            error: Exception.get('REF'),
 	            value: null
 	          });
@@ -1332,6 +178,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	    } catch (ex) {
 
 	      var message = Exception.get(ex.message);
+
+	      marker && console.error('Parse error:');
+	      marker && console.error(ex);
+	      // console.error(ex);
 
 	      if (message) {
 	        error = message;
@@ -1345,10 +195,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	      //error = Exception.get('ERROR');
 	    }
 
-	    return {
+	    var ret = {
 	      error: error,
 	      value: result
-	    }
+	    };
+	    window.marker && console.log('parse', ret);
+	    delete window.marker;
+
+	    return ret;
 	  };
 
 	  /**
@@ -1360,8 +214,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	  var resultItem = function (item) {
 	    return {
 	      id: item.id,
-	      value: item.value || null,
-	      error: item.error || null,
+	      value: 'undefined' === typeof item.value ? null : item.value,
+	      error: 'undefined' === typeof item.error ? null : item.error,
 	      formula: item.formula ? ('=' + item.formula) : null,
 	    };
 	  };
@@ -1372,8 +226,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	   * @param  {String} id  The id
 	   * @return {Object}     A sanitized item
 	   */
-	  var getItemValue = function (id) {
-	    var item = instance.matrix.getItem(id);
+	  var getItem = function (id) {
+	    var item = matrix.getItem(id);
 	    // TODO: error checking
 	    return resultItem(item);
 	  };
@@ -1384,8 +238,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	   * @param  {Array} ids  The ids
 	   * @return {Array}      The items
 	   */
-	  var getItemsValues = function (ids) {
-	    return ids.map(getItemValue);
+	  var getItems = function (ids) {
+	    return ids.map(getItem);
 	  }
 
 	  /**
@@ -1394,8 +248,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	   * @param {String} id        The id of the item to update
 	   * @param {*}      newValue  The new value
 	   */
-	  var setItemValue = function (id, newValue) {
-	    var item = instance.matrix.getItem(id);
+	  var setItem = function (id, newValue) {
+	    var item = matrix.getItem(id);
 	    if (! item) {
 	      throw new Error('ERROR: No item with id: ' + id);
 	    }
@@ -1403,23 +257,57 @@ return /******/ (function(modules) { // webpackBootstrap
 	    var formula = null,
 	        value = null;
 
-	    if (instance.utils.isFormula(newValue)) {
+	    if (utils.isFormula(newValue)) {
 	      formula = newValue.substr(1);
 	    } else {
 	      value = newValue;
 	    }
 
-	    instance.matrix.updateItem(item, {
+	    matrix.updateItem(item, {
 	      value: value,
 	      formula: formula,
 	    });
 
 	    // CHECK: recalculate only the dependant items + time ones (and their dependant ones)
-	    instance.matrix.recalculate();
+	    matrix.recalculate();
 
 	    return resultItem(item);
 	  };
 
+	  /**
+	   * Updates an existing matrix item and recalculates the dependant items
+	   *
+	   * @param {String} id        The id of the item to update
+	   * @param {*}      newValue  The new value
+	   */
+	  var setItemValue = function (id, newValue) {
+	    var item = matrix.getItem(id);
+	    if (! item) {
+	      throw new Error('ERROR: No item with id: ' + id);
+	    }
+
+	    if (item.formula) {
+	      throw new Error('ERROR: The item appears to be a formula item. You can only set the value of non-formula items');
+	    }
+
+	    if (utils.isFormula(newValue)) {
+	      throw new Error('ERROR: The new value appears to be a formula');
+	    }
+
+	    matrix.updateItem(item, {
+	      value: newValue,
+	    });
+
+	    // CHECK: recalculate the time based items (and their dependant ones)
+	    // var deps = matrix.getDependencies(id);
+	    // if (deps && deps.length > 0) {
+	    //   matrix.recalculateItems(deps);
+	    // }
+
+	    matrix.recalculate();
+
+	    return resultItem(item);
+	  };
 	  /**
 	   * Return all items in an array of arrays (rows/columns)
 	   *
@@ -1428,7 +316,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	  var getAllItems = function () {
 	    var rows = [];
 
-	    instance.matrix.data.forEach(function (item) {
+	    _.forEach(matrix.getAllItems(), function (item) {
 	      var row = item.row,
 	          col = item.col;
 
@@ -1449,60 +337,77 @@ return /******/ (function(modules) { // webpackBootstrap
 	   * @return {Array}     An array of ids
 	   */
 	  var getDependantIds = function (id) {
-	    return instance.matrix.getDependencies(id);
+	    return matrix.getDependencies(id);
+	  };
+
+	  var _getGraphDeep = function(id, ids) {
+	    if (ids[id]) {
+	      return ids[id];
+	    }
+
+	    var rawItem = matrix.getItem(id),
+	        item = getItem(id);
+
+	    ids[id] = {
+	      item: item,
+	      depIds: rawItem.deps,
+	      deps: [],
+	    };
+
+	    if (rawItem.deps) {
+	      for (var i = 0, maxI = rawItem.deps.length; i < maxI; i++) {
+	        ids[id].deps.push(_getGraphDeep(rawItem.deps[i], ids));
+	      }
+	    }
+
+	    return ids[id];
+	  };
+
+	  var getGraph = function (id) {
+	    var item = matrix.getItem(id);
+	    return _getGraphDeep(item.id, {});
 	  };
 
 	  /**
 	   * Recalculates the matrix (useful for time functions)
 	   */
 	  var recalculate = function () {
-	    instance.matrix.recalculate();
-	  };
-
-	  var options = {
-	    trackFormulasCoverage: false,
-	    supportedFormulas: 'all',
+	    matrix.recalculate();
 	  };
 
 	  /**
 	   * Initial method, create formulas, parser and matrix objects
 	   */
 	  var init = function (args) {
-	    options = _.extend({}, options, args);
+	    var options = _.extend({
+	      supportedFormulas: 'all',
+	      additionalFormulas: null,
+	    }, args);
 
-	    instance = this;
-
-	    parser = new FormulaParser(instance);
-
-	    instance.formulas = Formula;
-
-	    if (options.supportedFormulas !== 'all' && _.isArray(options.supportedFormulas)) {
-	      var supportedFormulas = _.filter(options.supportedFormulas, _.isString);
-	      instance.helper.SUPPORTED_FORMULAS = supportedFormulas;
+	    if (options.additionalFormulas !== null) {
+	      options.additionalFormulas = _.extend(FormulaJS, options.additionalFormulas);
 	    }
 
-	    instance.matrix = new Matrix();
-
-	    // will hold custom functions
-	    // TODO: investigate what populates this
-	    instance.custom = {};
+	    instance = this;
+	    matrix = new Matrix(instance);
+	    parser = new FormulaParser(new ParserDelegate(matrix, options.additionalFormulas, options.supportedFormulas));
 
 	    if (dataSource) {
-	      instance.matrix.scan(dataSource);
-	      instance.matrix.recalculate();
+	      matrix.scan(dataSource);
+	      matrix.recalculate();
 	    }
 	  };
 
 	  return {
 	    init: init,
 	    version: version,
-	    utils: utils,
-	    helper: helper,
 	    parse: parse,
-	    getAllValues: getAllItems,
-	    getValue: getItemValue,
-	    setValue: setItemValue,
-	    getValues: getItemsValues,
+	    getGraph: getGraph,
+	    getAllCells: getAllItems,
+	    getCell: getItem,
+	    setCell: setItem,
+	    setCellValue: setItemValue,
+	    getCells: getItems,
 	    getDependantIds: getDependantIds,
 	    recalculate: recalculate,
 	  };
@@ -13886,21 +12791,387 @@ return /******/ (function(modules) { // webpackBootstrap
 
 /***/ },
 /* 4 */
+/***/ function(module, exports) {
+
+	/**
+	 * Utils methods
+	 *
+	 * @type {{isArray: isArray, toNum: toNum, toChar: toChar, cellCoords: cellCoords}}
+	 */
+	var utils = {
+	  /**
+	   * Check if value is array
+	   *
+	   * @param value
+	   * @returns {boolean}
+	   *
+	   * PARSER callback
+	   */
+	  isArray: function (value) {
+	    window.marker && console.error('isArray', arguments);
+	    return Object.prototype.toString.call(value) === '[object Array]';
+	  },
+
+	  /**
+	   * Check if value is number
+	   *
+	   * @param value
+	   * @returns {boolean}
+	   */
+	  isNumber: function (value) {
+	    window.marker && console.error('isNumber', arguments);
+	    return Object.prototype.toString.call(value) === '[object Number]';
+	  },
+
+	  /**
+	   * Check if value is string
+	   *
+	   * @param value
+	   * @returns {boolean}
+	   */
+	  isString: function (value) {
+	    window.marker && console.error('isString', arguments);
+	    return Object.prototype.toString.call(value) === '[object String]';
+	  },
+
+	  /**
+	   * Check if value is function
+	   *
+	   * @param value
+	   * @returns {boolean}
+	   */
+	  isFunction: function (value) {
+	    window.marker && console.error('isFunction', arguments);
+	    return Object.prototype.toString.call(value) === '[object Function]';
+	  },
+
+	  /**
+	   * Check if value is undefined
+	   *
+	   * @param value
+	   * @returns {boolean}
+	   */
+	  isUndefined: function (value) {
+	    window.marker && console.error('isUndefined', arguments);
+	    return Object.prototype.toString.call(value) === '[object Undefined]';
+	  },
+
+	  /**
+	   * Check if value is null
+	   *
+	   * @param value
+	   * @returns {boolean}
+	   */
+	  isNull: function (value) {
+	    window.marker && console.error('isNull', arguments);
+	    return Object.prototype.toString.call(value) === '[object Null]';
+	  },
+
+	  /**
+	   * Check if value is set
+	   *
+	   * @param value
+	   * @returns {boolean}
+	   */
+	  isSet: function (value) {
+	    window.marker && console.error('isSet', arguments);
+	    return !utils.isUndefined(value) && !utils.isNull(value);
+	  },
+
+	  /**
+	   * Check if value is cell
+	   *
+	   * @param {String} value
+	   * @returns {Boolean}
+	   */
+	  isCell: function (value) {
+	    window.marker && console.error('isCell', arguments);
+	    return value.match(/^[A-Za-z]+[0-9]+/) ? true : false;
+	  },
+
+	  /**
+	   * Check if value is formula
+	   *
+	   * @param {String} value
+	   * @returns {Boolean}
+	   */
+	  isFormula: function (value) {
+	    window.marker && console.error('isFormula', arguments);
+	    return utils.isString(value) && value.length > 1 && value.substr(0, 1) === '=';
+	  },
+
+	  /**
+	   * Get row name and column number
+	   *
+	   * @param cell
+	   * @returns {{alpha: string, num: number}}
+	   */
+	  getCellAlphaNum: function (cell) {
+	    window.marker && console.error('getCellAlphaNum', arguments);
+	    var num = cell.match(/\d+$/),
+	        alpha = cell.replace(num, '');
+
+	    return {
+	      alpha: alpha,
+	      num: parseInt(num[0], 10)
+	    }
+	  },
+
+	  /**
+	   * Change row cell index A1 -> A2
+	   *
+	   * @param {String} cell
+	   * @param {Number} counter
+	   * @returns {String}
+	   */
+	  changeRowIndex: function (cell, counter) {
+	    window.marker && console.error('changeRowIndex', arguments);
+	    var alphaNum = utils.getCellAlphaNum(cell),
+	        alpha = alphaNum.alpha,
+	        col = alpha,
+	        row = parseInt(alphaNum.num + counter, 10);
+
+	    if (row < 1) {
+	      row = 1;
+	    }
+
+	    return col + '' + row;
+	  },
+
+	  /**
+	   * Change col cell index A1 -> B1 Z1 -> AA1
+	   *
+	   * @param {String} cell
+	   * @param {Number} counter
+	   * @returns {String}
+	   */
+	  changeColIndex: function (cell, counter) {
+	    window.marker && console.error('changeColIndex', arguments);
+	    var alphaNum = utils.getCellAlphaNum(cell),
+	        alpha = alphaNum.alpha,
+	        col = utils.toChar(parseInt(utils.toNum(alpha) + counter, 10)),
+	        row = alphaNum.num;
+
+	    if (!col || col.length === 0) {
+	      col = 'A';
+	    }
+
+	    var fixedCol = alpha[0] === '$' || false,
+	        fixedRow = alpha[alpha.length - 1] === '$' || false;
+
+	    col = (fixedCol ? '$' : '') + col;
+	    row = (fixedRow ? '$' : '') + row;
+
+	    return col + '' + row;
+	  },
+
+	  /**
+	   * Change formula
+	   *
+	   * @param  {String} formula  The formula to change
+	   * @param  {int}    delta    A delta
+	   * @param  {Object} change   Col/Row object
+	   * @return {Array}           The new match
+	   *
+	   * TODO: Not used
+	   */
+	  changeFormula: function (formula, delta, change) {
+	    window.marker && console.error('changeFormula', arguments);
+	    if (!delta) {
+	      delta = 1;
+	    }
+
+	    return formula.replace(/(\$?[A-Za-z]+\$?[0-9]+)/g, function (match) {
+	      var alphaNum = utils.getCellAlphaNum(match),
+	          alpha = alphaNum.alpha,
+	          num = alphaNum.num;
+
+	      if (utils.isNumber(change.col)) {
+	        num = utils.toNum(alpha);
+
+	        if (change.col <= num) {
+	          return utils.changeColIndex(match, delta);
+	        }
+	      }
+
+	      if (utils.isNumber(change.row)) {
+	        if (change.row < num) {
+	          return utils.changeRowIndex(match, delta);
+	        }
+	      }
+
+	      return match;
+	    });
+	  },
+
+	  /**
+	   * Update formula cells
+	   *
+	   * @param {String} formula
+	   * @param {String} direction
+	   * @param {Number} delta
+	   * @returns {String}
+	   */
+	  updateFormula: function (formula, direction, delta) {
+	    window.marker && console.error('updateFormula', arguments);
+	    var type,
+	        counter;
+
+	    // left, right -> col
+	    if (['left', 'right'].indexOf(direction) !== -1) {
+	      type = 'col';
+	    } else if (['up', 'down'].indexOf(direction) !== -1) {
+	      type = 'row'
+	    }
+
+	    // down, up -> row
+	    if (['down', 'right'].indexOf(direction) !== -1) {
+	      counter = delta * 1;
+	    } else if(['up', 'left'].indexOf(direction) !== -1) {
+	      counter = delta * (-1);
+	    }
+
+	    if (type && counter) {
+	      return formula.replace(/(\$?[A-Za-z]+\$?[0-9]+)/g, function (match) {
+
+	        var alpha = utils.getCellAlphaNum(match).alpha;
+
+	        var fixedCol = alpha[0] === '$' || false,
+	            fixedRow = alpha[alpha.length - 1] === '$' || false;
+
+	        if (type === 'row' && fixedRow) {
+	          return match;
+	        }
+
+	        if (type === 'col' && fixedCol) {
+	          return match;
+	        }
+
+	        return (type === 'row' ? utils.changeRowIndex(match, counter) : utils.changeColIndex(match, counter));
+	      });
+	    }
+
+	    return formula;
+	  },
+
+	  /**
+	   * Convert string char to number e.g A => 0, Z => 25, AA => 27
+	   *
+	   * @param {String} chr
+	   * @returns {Number}
+	   */
+	  toNum: function (chr) {
+	    window.marker && console.error('toNum', arguments);
+	//      chr = utils.clearFormula(chr).split('');
+	//
+	//      var base = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z"],
+	//          i, j, result = 0;
+	//
+	//      for (i = 0, j = chr.length - 1; i < chr.length; i += 1, j -= 1) {
+	//        result += Math.pow(base.length, j) * (base.indexOf(chr[i]));
+	//      }
+	//
+	//      return result;
+
+	    chr = utils.clearFormula(chr);
+	    var base = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', i, j, result = 0;
+
+	    for (i = 0, j = chr.length - 1; i < chr.length; i += 1, j -= 1) {
+	      result += Math.pow(base.length, j) * (base.indexOf(chr[i]) + 1);
+	    }
+
+	    if (result) {
+	      --result;
+	    }
+
+	    return result;
+	  },
+
+	  /**
+	   * Convert number to string char, e.g 0 => A, 25 => Z, 26 => AA
+	   *
+	   * @param {Number} num
+	   * @returns {String}
+	   */
+	  toChar: function (num) {
+	    window.marker && console.error('toChar', arguments);
+	    var s = '';
+
+	    while (num >= 0) {
+	      s = String.fromCharCode(num % 26 + 97) + s;
+	      num = Math.floor(num / 26) - 1;
+	    }
+
+	    return s.toUpperCase();
+	  },
+
+	  /**
+	   * Get cell coordinates
+	   *
+	   * @param {String} cell A1
+	   * @returns {{row: Number, col: number}}
+	   */
+	  cellCoords: function (cell) {
+	    window.marker && console.error('cellCoords', arguments);
+	    var num = cell.match(/\d+$/),
+	        alpha = cell.replace(num, '');
+
+	    return {
+	      row: parseInt(num[0], 10) - 1,
+	      col: utils.toNum(alpha)
+	    };
+	  },
+
+	  /**
+	   * Remove $ from formula
+	   *
+	   * @param {String} formula
+	   * @returns {String|void}
+	   */
+	  clearFormula: function (formula) {
+	    window.marker && console.error('clearFormula', arguments);
+	    return formula.replace(/\$/g, '');
+	  },
+
+	  /**
+	   * Translate cell coordinates to merged form {row:0, col:0} -> A1
+	   *
+	   * @param coords
+	   * @returns {string}
+	   */
+	  translateCellCoords: function (coords) {
+	    window.marker && console.error('translateCellCoords', arguments);
+	    return utils.toChar(coords.col) + '' + parseInt(coords.row + 1, 10);
+	  },
+
+	  sort: function (rev) {
+	    window.marker && console.error('sort', arguments);
+	    return function (a, b) {
+	      return ((a < b) ? -1 : ((a > b) ? 1 : 0)) * (rev ? -1 : 1);
+	    }
+	  }
+	};
+
+	module.exports = utils;
+
+
+/***/ },
+/* 5 */
 /***/ function(module, exports, __webpack_require__) {
 
 	var categories = [
-	  __webpack_require__(5),
-	  __webpack_require__(19),
-	  __webpack_require__(16),
-	  __webpack_require__(20),
 	  __webpack_require__(6),
-	  __webpack_require__(11),
-	  __webpack_require__(18),
+	  __webpack_require__(20),
+	  __webpack_require__(17),
 	  __webpack_require__(21),
-	  __webpack_require__(15),
+	  __webpack_require__(7),
+	  __webpack_require__(12),
+	  __webpack_require__(19),
 	  __webpack_require__(22),
-	  __webpack_require__(10),
-	  __webpack_require__(14)
+	  __webpack_require__(16),
+	  __webpack_require__(23),
+	  __webpack_require__(11),
+	  __webpack_require__(15)
 	];
 
 	for (var c in categories) {
@@ -13912,13 +13183,13 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 5 */
+/* 6 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var mathTrig = __webpack_require__(6);
-	var statistical = __webpack_require__(10);
-	var engineering = __webpack_require__(16);
-	var dateTime = __webpack_require__(18);
+	var mathTrig = __webpack_require__(7);
+	var statistical = __webpack_require__(11);
+	var engineering = __webpack_require__(17);
+	var dateTime = __webpack_require__(19);
 
 	function set(fn, root) {
 	  if (root) {
@@ -14004,14 +13275,14 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 6 */
+/* 7 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var numeric = __webpack_require__(7);
-	var utils = __webpack_require__(8);
-	var error = __webpack_require__(9);
-	var statistical = __webpack_require__(10);
-	var information = __webpack_require__(15);
+	var numeric = __webpack_require__(8);
+	var utils = __webpack_require__(9);
+	var error = __webpack_require__(10);
+	var statistical = __webpack_require__(11);
+	var information = __webpack_require__(16);
 
 	exports.ABS = function(number) {
 	  number = utils.parseNumber(number);
@@ -15116,8 +14387,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	  return sign * (Math.floor(Math.abs(number) * Math.pow(10, digits))) / Math.pow(10, digits);
 	};
 
+
 /***/ },
-/* 7 */
+/* 8 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/* WEBPACK VAR INJECTION */(function(global) {"use strict";
@@ -19548,10 +18820,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	/* WEBPACK VAR INJECTION */}.call(exports, (function() { return this; }())))
 
 /***/ },
-/* 8 */
+/* 9 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var error = __webpack_require__(9);
+	var error = __webpack_require__(10);
 
 	function flattenShallow(array) {
 	  if (!array || !array.reduce) { return array; }
@@ -19771,12 +19043,12 @@ return /******/ (function(modules) { // webpackBootstrap
 	};
 
 /***/ },
-/* 9 */
+/* 10 */
 /***/ function(module, exports) {
 
 	exports.nil = new Error('#NULL!');
 	exports.div0 = new Error('#DIV/0!');
-	exports.value = new Error('#VALUE?');
+	exports.value = new Error('#VALUE!');
 	exports.ref = new Error('#REF!');
 	exports.name = new Error('#NAME?');
 	exports.num = new Error('#NUM!');
@@ -19786,15 +19058,15 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 10 */
+/* 11 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var mathTrig = __webpack_require__(6);
-	var text = __webpack_require__(11);
-	var jStat = __webpack_require__(13).jStat;
-	var utils = __webpack_require__(8);
-	var error = __webpack_require__(9);
-	var misc = __webpack_require__(14);
+	var mathTrig = __webpack_require__(7);
+	var text = __webpack_require__(12);
+	var jStat = __webpack_require__(14).jStat;
+	var utils = __webpack_require__(9);
+	var error = __webpack_require__(10);
+	var misc = __webpack_require__(15);
 
 	var SQRT2PI = 2.5066282746310002;
 
@@ -21531,12 +20803,12 @@ return /******/ (function(modules) { // webpackBootstrap
 	};
 
 /***/ },
-/* 11 */
+/* 12 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var utils = __webpack_require__(8);
-	var error = __webpack_require__(9);
-	var numeral = __webpack_require__(12);
+	var utils = __webpack_require__(9);
+	var error = __webpack_require__(10);
+	var numeral = __webpack_require__(13);
 
 	//TODO
 	exports.ASC = function() {
@@ -21843,7 +21115,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 12 */
+/* 13 */
 /***/ function(module, exports, __webpack_require__) {
 
 	var __WEBPACK_AMD_DEFINE_ARRAY__, __WEBPACK_AMD_DEFINE_RESULT__;/*!
@@ -22528,7 +21800,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 13 */
+/* 14 */
 /***/ function(module, exports) {
 
 	this.j$ = this.jStat = (function(Math, undefined) {
@@ -25788,11 +25060,11 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 14 */
+/* 15 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var utils   = __webpack_require__(8);
-	var numeral = __webpack_require__(12);
+	var utils   = __webpack_require__(9);
+	var numeral = __webpack_require__(13);
 
 	exports.UNIQUE = function () {
 	  var result = [];
@@ -25854,10 +25126,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	};
 
 /***/ },
-/* 15 */
+/* 16 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var error = __webpack_require__(9);
+	var error = __webpack_require__(10);
 
 	// TODO
 	exports.CELL = function() {
@@ -25993,14 +25265,14 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 16 */
+/* 17 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var error = __webpack_require__(9);
-	var jStat = __webpack_require__(13).jStat;
-	var text = __webpack_require__(11);
-	var utils = __webpack_require__(8);
-	var bessel = __webpack_require__(17);
+	var error = __webpack_require__(10);
+	var jStat = __webpack_require__(14).jStat;
+	var text = __webpack_require__(12);
+	var utils = __webpack_require__(9);
+	var bessel = __webpack_require__(18);
 
 	function isValidBinaryNumber(number) {
 	  return (/^[01]{1,10}$/).test(number);
@@ -27549,7 +26821,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	};
 
 /***/ },
-/* 17 */
+/* 18 */
 /***/ function(module, exports, __webpack_require__) {
 
 	var M = Math;
@@ -27764,11 +27036,11 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 18 */
+/* 19 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var error = __webpack_require__(9);
-	var utils = __webpack_require__(8);
+	var error = __webpack_require__(10);
+	var utils = __webpack_require__(9);
 
 	var d1900 = new Date(1900, 0, 1);
 	var WEEK_STARTS = [
@@ -28285,13 +27557,13 @@ return /******/ (function(modules) { // webpackBootstrap
 	}
 
 /***/ },
-/* 19 */
+/* 20 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var error = __webpack_require__(9);
-	var stats = __webpack_require__(10);
-	var maths = __webpack_require__(6);
-	var utils = __webpack_require__(8);
+	var error = __webpack_require__(10);
+	var stats = __webpack_require__(11);
+	var maths = __webpack_require__(7);
+	var utils = __webpack_require__(9);
 
 	function compact(array) {
 	  if (!array) { return array; }
@@ -28625,12 +27897,12 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 20 */
+/* 21 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var error = __webpack_require__(9);
-	var utils = __webpack_require__(8);
-	var information = __webpack_require__(15);
+	var error = __webpack_require__(10);
+	var utils = __webpack_require__(9);
+	var information = __webpack_require__(16);
 
 	exports.AND = function() {
 	  var args = utils.flatten(arguments);
@@ -28738,12 +28010,12 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 21 */
+/* 22 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var error = __webpack_require__(9);
-	var dateTime = __webpack_require__(18);
-	var utils = __webpack_require__(8);
+	var error = __webpack_require__(10);
+	var dateTime = __webpack_require__(19);
+	var utils = __webpack_require__(9);
 
 	function validDate(d) {
 	  return d && d.getTime && !isNaN(d.getTime());
@@ -29832,10 +29104,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	};
 
 /***/ },
-/* 22 */
+/* 23 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var error = __webpack_require__(9);
+	var error = __webpack_require__(10);
 
 	exports.MATCH = function(lookupValue, lookupArray, matchType) {
 	  if (!lookupValue && !lookupArray) {
@@ -29897,12 +29169,12 @@ return /******/ (function(modules) { // webpackBootstrap
 	};
 
 /***/ },
-/* 23 */
+/* 24 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var Parser = __webpack_require__(24);
+	var Parser = __webpack_require__(25);
 
-	exports.FormulaParser = function (handler) {
+	function FormulaParser (handler) {
 	  var formulaLexer = function () {};
 	  formulaLexer.prototype = Parser.lexer;
 
@@ -29937,9 +29209,11 @@ return /******/ (function(modules) { // webpackBootstrap
 	  return newParser;
 	};
 
+	module.exports = FormulaParser;
+
 
 /***/ },
-/* 24 */
+/* 25 */
 /***/ function(module, exports, __webpack_require__) {
 
 	var __WEBPACK_AMD_DEFINE_RESULT__;
@@ -29963,7 +29237,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	break;
 	case 2:
 
-	        this.$ = yy.handler.helper.callVariable.call(this, $$[$0]);
+	        this.$ = yy.handler.callVariable.call(this, $$[$0]);
 	      
 	break;
 	case 3:
@@ -29978,87 +29252,87 @@ return /******/ (function(modules) { // webpackBootstrap
 	break;
 	case 5:
 
-	        this.$ = yy.handler.helper.number($$[$0]);
+	        this.$ = yy.handler.number($$[$0]);
 	      
 	break;
 	case 6:
 
-	        this.$ = yy.handler.helper.string($$[$0]);
+	        this.$ = yy.handler.string($$[$0]);
 	      
 	break;
 	case 7:
 
-	        this.$ = yy.handler.helper.specialMatch('&', $$[$0-2], $$[$0]);
+	        this.$ = yy.handler.specialMatch('&', $$[$0-2], $$[$0]);
 	      
 	break;
 	case 8:
 
-	        this.$ = yy.handler.helper.logicMatch('=', $$[$0-2], $$[$0]);
+	        this.$ = yy.handler.logicMatch('=', $$[$0-2], $$[$0]);
 	      
 	break;
 	case 9:
 
-	        this.$ = yy.handler.helper.mathMatch('+', $$[$0-2], $$[$0]);
+	        this.$ = yy.handler.mathMatch('+', $$[$0-2], $$[$0]);
 	      
 	break;
 	case 10:
 
-	        this.$ = yy.handler.helper.number($$[$0-1]);
+	        this.$ = yy.handler.number($$[$0-1]);
 	      
 	break;
 	case 11:
 
-	        this.$ = yy.handler.helper.logicMatch('<=', $$[$0-3], $$[$0]);
+	        this.$ = yy.handler.logicMatch('<=', $$[$0-3], $$[$0]);
 	      
 	break;
 	case 12:
 
-	        this.$ = yy.handler.helper.logicMatch('>=', $$[$0-3], $$[$0]);
+	        this.$ = yy.handler.logicMatch('>=', $$[$0-3], $$[$0]);
 	      
 	break;
 	case 13:
 
-		      this.$ = yy.handler.helper.logicMatch('<>', $$[$0-3], $$[$0]);
+		      this.$ = yy.handler.logicMatch('<>', $$[$0-3], $$[$0]);
 	      
 	break;
 	case 14:
 
-	        this.$ = yy.handler.helper.logicMatch('NOT', $$[$0-2], $$[$0]);
+	        this.$ = yy.handler.logicMatch('NOT', $$[$0-2], $$[$0]);
 	      
 	break;
 	case 15:
 
-	        this.$ = yy.handler.helper.logicMatch('>', $$[$0-2], $$[$0]);
+	        this.$ = yy.handler.logicMatch('>', $$[$0-2], $$[$0]);
 	      
 	break;
 	case 16:
 
-	        this.$ = yy.handler.helper.logicMatch('<', $$[$0-2], $$[$0]);
+	        this.$ = yy.handler.logicMatch('<', $$[$0-2], $$[$0]);
 	      
 	break;
 	case 17:
 
-	        this.$ = yy.handler.helper.mathMatch('-', $$[$0-2], $$[$0]);
+	        this.$ = yy.handler.mathMatch('-', $$[$0-2], $$[$0]);
 	      
 	break;
 	case 18:
 
-	        this.$ = yy.handler.helper.mathMatch('*', $$[$0-2], $$[$0]);
+	        this.$ = yy.handler.mathMatch('*', $$[$0-2], $$[$0]);
 	      
 	break;
 	case 19:
 
-	        this.$ = yy.handler.helper.mathMatch('/', $$[$0-2], $$[$0]);
+	        this.$ = yy.handler.mathMatch('/', $$[$0-2], $$[$0]);
 	      
 	break;
 	case 20:
 
-	        this.$ = yy.handler.helper.mathMatch('^', $$[$0-2], $$[$0]);
+	        this.$ = yy.handler.mathMatch('^', $$[$0-2], $$[$0]);
 	      
 	break;
 	case 21:
 
-	        var n1 = yy.handler.helper.numberInverted($$[$0]);
+	        var n1 = yy.handler.numberInverted($$[$0]);
 	        this.$ = n1;
 	        if (isNaN(this.$)) {
 	            this.$ = 0;
@@ -30067,7 +29341,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	break;
 	case 22:
 
-	        var n1 = yy.handler.helper.number($$[$0]);
+	        var n1 = yy.handler.number($$[$0]);
 	        this.$ = n1;
 	        if (isNaN(this.$)) {
 	            this.$ = 0;
@@ -30076,45 +29350,46 @@ return /******/ (function(modules) { // webpackBootstrap
 	break;
 	case 23:
 
-	        this.$ = yy.handler.helper.callFunction.call(this, $$[$0-2], '');
+	        this.$ = yy.handler.callFunction.call(this, $$[$0-2], '');
 	      
 	break;
 	case 24:
 
-	        this.$ = yy.handler.helper.callFunction.call(this, $$[$0-3], $$[$0-1]);
+	        this.$ = yy.handler.callFunction.call(this, $$[$0-3], $$[$0-1]);
 	      
 	break;
 	case 28:
 
-	      this.$ = yy.handler.helper.fixedCellValue.call(yy.obj, $$[$0]);
+	      this.$ = yy.handler.fixedCellValue.call(yy.obj, $$[$0]);
 	    
 	break;
 	case 29:
 
-	      this.$ = yy.handler.helper.fixedCellRangeValue.call(yy.obj, $$[$0-2], $$[$0]);
+	      this.$ = yy.handler.fixedCellRangeValue.call(yy.obj, $$[$0-2], $$[$0]);
 	    
 	break;
 	case 30:
 
-	      this.$ = yy.handler.helper.cellValue.call(yy.obj, $$[$0]);
+	      this.$ = yy.handler.cellValue.call(yy.obj, $$[$0]);
 	    
 	break;
 	case 31:
 
-	      this.$ = yy.handler.helper.cellRangeValue.call(yy.obj, $$[$0-2], $$[$0]);
+	      this.$ = yy.handler.cellRangeValue.call(yy.obj, $$[$0-2], $$[$0]);
 	    
 	break;
 	case 32:
 
-	      if (yy.handler.utils.isArray($$[$0])) {
-	        this.$ = $$[$0];
-	      } else {
+	      // if (yy.handler.isArray($$[$0])) {
+	      //   this.$ = $$[$0];
+	      // } else {
 	        this.$ = [$$[$0]];
-	      }
+	      // }
 	    
 	break;
 	case 33:
 
+	      console && console.warning && console.warn('EVAL');
 	      var result = [],
 	          arr = eval("[" + yytext + "]");
 
@@ -30138,7 +29413,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	break;
 	case 37:
 
-	      this.$ = (yy.handler.utils.isArray($$[$0-2]) ? $$[$0-2] : [$$[$0-2]]);
+	      this.$ = (yy.handler.isArray($$[$0-2]) ? $$[$0-2] : [$$[$0-2]]);
 	      this.$.push($$[$0]);
 	    
 	break;
@@ -30831,7 +30106,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	}.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
 
 /***/ },
-/* 25 */
+/* 26 */
 /***/ function(module, exports, __webpack_require__) {
 
 	var _ = __webpack_require__(2);
@@ -30846,7 +30121,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	  {type: 'REF', output: '#REF!'},
 	  {type: 'NAME', output: '#NAME?'},
 	  {type: 'NUM', output: '#NUM!'},
-	  {type: 'NOT_AVAILABLE', output: '#N/A!'},
+	  {type: 'NOT_AVAILABLE', output: '#N/A'},
 	  {type: 'ERROR', output: '#ERROR'},
 	  {type: 'NEED_UPDATE', output: '#NEED_UPDATE'}
 	];
@@ -30864,6 +30139,942 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	  return error ? error.output : null;
 	};
+
+
+/***/ },
+/* 27 */
+/***/ function(module, exports, __webpack_require__) {
+
+	var _ = __webpack_require__(2);
+	var utils = __webpack_require__(4);
+	var error = __webpack_require__(10);
+	var information = __webpack_require__(16);
+
+	/**
+	 * List of supported formulas
+	 */
+	var SUPPORTED_FORMULAS = [
+	  'ABS', 'ACCRINT', 'ACOS', 'ACOSH', 'ACOTH', 'AND', 'ARABIC', 'ASIN', 'ASINH', 'ATAN', 'ATAN2', 'ATANH', 'AVEDEV', 'AVERAGE', 'AVERAGEA', 'AVERAGEIF',
+	  'BASE', 'BESSELI', 'BESSELJ', 'BESSELK', 'BESSELY', 'BETADIST', 'BETAINV', 'BIN2DEC', 'BIN2HEX', 'BIN2OCT', 'BINOMDIST', 'BINOMDISTRANGE', 'BINOMINV', 'BITAND', 'BITLSHIFT', 'BITOR', 'BITRSHIFT', 'BITXOR',
+	  'CEILING', 'CEILINGMATH', 'CEILINGPRECISE', 'CHAR', 'CHISQDIST', 'CHISQINV', 'CODE', 'COMBIN', 'COMBINA', 'COMPLEX', 'CONCATENATE', 'CONFIDENCENORM', 'CONFIDENCET', 'CONVERT', 'CORREL', 'COS', 'COSH', 'COT', 'COTH', 'COUNT', 'COUNTA', 'COUNTBLANK', 'COUNTIF', 'COUNTIFS', 'COUNTIN', 'COUNTUNIQUE', 'COVARIANCEP', 'COVARIANCES', 'CSC', 'CSCH', 'CUMIPMT', 'CUMPRINC',
+	  'DATE', 'DATEVALUE', 'DAY', 'DAYS', 'DAYS360', 'DB', 'DDB', 'DEC2BIN', 'DEC2HEX', 'DEC2OCT', 'DECIMAL', 'DEGREES', 'DELTA', 'DEVSQ', 'DOLLAR', 'DOLLARDE', 'DOLLARFR',
+	  'E', 'EDATE', 'EFFECT', 'EOMONTH', 'ERF', 'ERFC', 'EVEN', 'EXACT', 'EXPONDIST',
+	  'FALSE', 'FDIST', 'FINV', 'FISHER', 'FISHERINV',
+	  'IF', 'INT', 'ISEVEN', 'ISODD',
+	  'LN', 'LOG', 'LOG10',
+	  'MAX', 'MAXA', 'MEDIAN', 'MIN', 'MINA', 'MOD',
+	  'NOT',
+	  'ODD', 'OR',
+	  'PI', 'POWER',
+	  'ROUND', 'ROUNDDOWN', 'ROUNDUP',
+	  'SIN', 'SINH', 'SPLIT', 'SQRT', 'SQRTPI', 'SUM', 'SUMIF', 'SUMIFS', 'SUMPRODUCT', 'SUMSQ', 'SUMX2MY2', 'SUMX2PY2', 'SUMXMY2',
+	  'TAN', 'TANH', 'TRUE', 'TRUNC',
+	  'XOR'
+	];
+
+	/**
+	 * Delegate with methods used by the parser
+	 *
+	 * @type {{number: number, numberInverted: numberInverted, mathMatch: mathMatch, callFunction: callFunction}}
+	 */
+	var ParserDelegate = function(matrix, formulas, supportedFormulas) {
+	  var instance = this;
+
+	  if ('undefined' === typeof matrix) {
+	    throw new Error('Matrix should be set');
+	  }
+
+	  if ('undefined' === typeof formulas) {
+	    throw new Error('Formulas should be set');
+	  }
+
+	  if (supportedFormulas === 'all') {
+	    supportedFormulas = null;
+	  } else if (_.isArray(supportedFormulas)) {
+	    var filteredSupportedFormulas = _.filter(supportedFormulas, _.isString);
+	    supportedFormulas = filteredSupportedFormulas;
+	  }
+
+	  supportedFormulas = supportedFormulas || SUPPORTED_FORMULAS;
+
+	  var helper = {
+	    /**
+	     * Get number
+	     *
+	     * @param  {Number|String} num
+	     * @returns {Number}
+	     *
+	     * PARSER callback
+	     */
+	    number: function (num) {
+	      window.marker && console.error('number', arguments);
+	      if (num === null) {
+	        return 0;
+	      }
+
+	      switch (typeof num) {
+	        case 'undefined':
+	          return 0;
+	        case 'number':
+	          return num;
+	        case 'string':
+	          if (!isNaN(num)) {
+	            if (num.length === 0) return 0;
+	            return num.indexOf('.') > -1 ? parseFloat(num) : parseInt(num, 10);
+	          }
+	      }
+
+	      return num;
+	    },
+
+	    /**
+	     * Get string
+	     *
+	     * @param {Number|String} str
+	     * @returns {string}
+	     *
+	     * PARSER callback
+	     */
+	    string: function (str) {
+	      window.marker && console.error('string', arguments);
+	      return str.substring(1, str.length - 1);
+	    },
+
+	    /**
+	     * Invert number
+	     *
+	     * @param num
+	     * @returns {Number}
+	     *
+	     * PARSER callback
+	     */
+	    numberInverted: function (num) {
+	      window.marker && console.error('numberInverted', arguments);
+	      return this.number(num) * (-1);
+	    },
+
+	    /**
+	     * Match special operation
+	     *
+	     * @param {String} type
+	     * @param {String} exp1
+	     * @param {String} exp2
+	     * @returns {*}
+	     *
+	     * PARSER callback
+	     */
+	    specialMatch: function (type, exp1, exp2) {
+	      window.marker && console.error('specialMatch', arguments);
+	      if (information.ISERROR(exp1)) {
+	        return exp1;
+	      }
+
+	      if (information.ISERROR(exp2)) {
+	        return exp2;
+	      }
+	      var result;
+
+	      switch (type) {
+	        case '&':
+	          result = exp1.toString() + exp2.toString();
+	          break;
+	      }
+	      return result;
+	    },
+
+	    /**
+	     * Match logic operation
+	     *
+	     * @param {String} type
+	     * @param {String|Number} exp1
+	     * @param {String|Number} exp2
+	     * @returns {Boolean} result
+	     *
+	     * PARSER callback
+	     */
+	    logicMatch: function (type, exp1, exp2) {
+	      window.marker && console.error('logicMatch', arguments);
+	      if (information.ISERROR(exp1)) {
+	        return exp1;
+	      }
+
+	      if (information.ISERROR(exp2)) {
+	        return exp2;
+	      }
+
+	      var result;
+
+	      switch (type) {
+	        case '=':
+	          result = (exp1 === exp2);
+	          break;
+
+	        case '>':
+	          result = (exp1 > exp2);
+	          break;
+
+	        case '<':
+	          result = (exp1 < exp2);
+	          break;
+
+	        case '>=':
+	          result = (exp1 >= exp2);
+	          break;
+
+	        case '<=':
+	          result = (exp1 <= exp2);
+	          break;
+
+	        case '<>': /* falls through */
+	        case 'NOT':
+	          result = (exp1 !== exp2);
+	          break;
+	      }
+
+	      return result;
+	    },
+
+	    /**
+	     * Match math operation
+	     *
+	     * @param {String} type
+	     * @param {Number} number1
+	     * @param {Number} number2
+	     * @returns {*}
+	     *
+	     * PARSER callback
+	     */
+	    mathMatch: function (type, number1, number2) {
+	      window.marker && console.error('mathMatch', arguments);
+	      if (information.ISERROR(number1)) {
+	        return number1;
+	      }
+
+	      if (information.ISERROR(number2)) {
+	        return number2;
+	      }
+	      var result;
+
+	      number1 = helper.number(number1);
+	      number2 = helper.number(number2);
+
+	      if (isNaN(number1) || isNaN(number2)) {
+
+	        if (number1[0] === '=' || number2[0] === '=') {
+	          throw Error('NEED_UPDATE');
+	        }
+
+	        window.marker && console.error('VALUE');
+	        return error.value;
+	        // throw Error('VALUE');
+	      }
+
+	      switch (type) {
+	        case '+': result = number1 + number2; break;
+	        case '-': result = number1 - number2; break;
+	        case '/':
+	          if (number2 === 0) {
+	            window.marker && console.error('DIV_ZERO');
+	            return error.div0;
+	            // throw Error('DIV_ZERO');
+	          }
+	          result = number1 / number2;
+	          if (result == Infinity) {
+	            window.marker && console.error('DIV_ZERO');
+	            return error.div0;
+	            // throw Error('DIV_ZERO');
+	          } else if (isNaN(result)) {
+	            window.marker && console.error('VALUE');
+	            window.marker && console.log(number1, number2, result);
+	            return error.value;
+	            // throw Error('VALUE');
+	          }
+	          break;
+	        case '*': result = number1 * number2; break;
+	        case '^': result = Math.pow(number1, number2); break;
+	      }
+
+	      window.marker && console.log(result);
+	      return result;
+	    },
+
+	    /**
+	     * Call function from formula
+	     *
+	     * @param {String} fn
+	     * @param {Array} args
+	     * @returns {*}
+	     *
+	     * PARSER callback
+	     */
+	    callFunction: function (fn, args) {
+	      window.marker && console.error('callFunction/call', arguments);
+	      // console.log('callFunction', arguments);
+	      fn = fn.toUpperCase();
+	      args = args || [];
+
+	      // TODO: move to Formula.js
+	      // if (fn !== 'IFERROR' && _.some(_.flatten(args), information.ISERROR)) {
+	      //   return Error('VALUE');
+	      // }
+
+	      // console.log(fn, args);
+
+	      if (supportedFormulas.indexOf(fn) > -1) {
+	        if (formulas[fn]) {
+	          if ('function' === typeof formulas.__pre) {
+	            args = formulas.__pre.call(this, fn, args);
+	          }
+	          var value = formulas[fn].apply(this, args);
+	          if ('function' === typeof formulas.__post) {
+	            value = formulas.__post.call(this, value, fn, args);
+	          }
+	          window.marker && console.log('callFunction/result', fn, args, value);
+	          return value;
+	        }
+	      }
+
+	      window.marker && console.error('callFunction/error: NAME');
+	      return error.name;
+	      // throw Error('NAME');
+	    },
+
+	    /**
+	     * Get variable from formula
+	     *
+	     * @param {Array} args
+	     * @returns {*}
+	     *
+	     * PARSER callback
+	     */
+	    callVariable: function (args) {
+	      window.marker && console.error('callVariable', arguments);
+	      // console.log('callVariable', arguments);
+	      args = args || [];
+	      var str = args[0];
+
+	      if (str) {
+	        str = str.toUpperCase();
+	        if (formulas[str]) {
+	          return ((typeof formulas[str] === 'function') ? formulas[str].apply(this, args) : formulas[str]);
+	        }
+	      }
+
+	      return error.name;
+	      // throw Error('NAME');
+	    },
+
+	    /**
+	     * Get cell value
+	     *
+	     * @param {String} id => A1 AA1
+	     * @returns {*}
+	     *
+	     * PARSER callback
+	     */
+	    cellValue: function (id) {
+	      window.marker && console.error('cellValue/call');
+	      window.marker && console.log('cellValue/argumnets', arguments)
+	      // console.log('cellValue', arguments);
+	      var value,
+	          formulaItem = this,
+	          refItem = matrix.getItem(id),
+	          cellId = utils.translateCellCoords({row: formulaItem.row, col: formulaItem.col});
+
+	      window.marker && console.log('cellValue/formulaItem', formulaItem);
+	      // get value
+	      if ('undefined' === typeof refItem) {
+	        console.error('refItem is undefined');
+	      }
+	      value = refItem.value;
+	      window.marker && console.log('cellValue/refItem.value', value);
+	      window.marker && console.log('cellValue/refItem', refItem);
+
+	      // update dependencies
+	      matrix.updateItem(formulaItem, {
+	        deps: [id]
+	      });
+
+	      // check references error
+	      if (refItem && refItem.deps) {
+	        if (refItem.deps.indexOf(cellId) !== -1) {
+	          // Cyclic reference
+	          console.error('CYCLIC REFERENCE refItem/cellId: ', cellId, JSON.stringify(refItem.deps));
+	          return error.ref;
+	          // throw Error('REF');
+	        }
+	      }
+
+	      // check if any error occurs
+	      if (refItem && refItem.error) {
+	        return Error(refItem.error);
+	        // throw Error(refItem.error);
+	      }
+
+	      // return value if is set
+	      if (utils.isSet(value)) {
+	        var result = helper.number(value);
+	        result = !isNaN(result) ? result : value;
+
+	        window.marker && console.log('cellValue/result', result);
+	        return result;
+	      }
+
+	      // cell is not available -- out of bounds
+	      window.marker && console.log('cellValue/na', error.na);
+	      return error.na;
+	      // throw Error('NOT_AVAILABLE');
+	    },
+
+	    /**
+	     * Iterate cell range and get theirs indexes and values
+	     *
+	     * @param {Object} startCell ex.: {row:1, col: 1}
+	     * @param {Object} endCell ex.: {row:10, col: 1}
+	     * @param {Function=} callback
+	     * @returns {{index: Array, value: Array}}
+	     */
+	    iterateCells: function (startCell, endCell /*, callback*/) {
+	      window.marker && console.error('iterateCells/call', arguments);
+	      var result = {
+	        index: [], // list of cell index: A1, A2, A3
+	        value: []  // list of cell value
+	      };
+
+	      var cols = {
+	        start: 0,
+	        end: 0
+	      };
+
+	      if (endCell.col >= startCell.col) {
+	        cols = {
+	          start: startCell.col,
+	          end: endCell.col
+	        };
+	      } else {
+	        cols = {
+	          start: endCell.col,
+	          end: startCell.col
+	        };
+	      }
+
+	      var rows = {
+	        start: 0,
+	        end: 0
+	      };
+
+	      if (endCell.row >= startCell.row) {
+	        rows = {
+	          start: startCell.row,
+	          end: endCell.row
+	        };
+	      } else {
+	        rows = {
+	          start: endCell.row,
+	          end: startCell.row
+	        };
+	      }
+
+	      window.marker && console.log('iterateCells/params', cols, rows);
+
+	      for (var column = cols.start, k = 0; column <= cols.end; column++, k++) {
+	        var colIndex = utils.toChar(column);
+	        for (var row = rows.start, j = 0; row <= rows.end; row++, j++) {
+	          var cellIndex = colIndex + (row + 1),
+	              cellValue = null;
+
+	          try {
+	            cellValue = helper.cellValue.call(this, cellIndex);
+	          } catch (ex) {
+	            window.marker && console.error('iterateCells/error', ex);
+	          }
+
+	          if ('undefined' === typeof result.index[j]) {
+	            result.index[j] = [];
+	            result.value[j] = [];
+	          }
+
+	          result.index[j][k] = cellIndex;
+	          result.value[j][k] = cellValue;
+	        }
+	      }
+
+	      window.marker && console.log('iterateCells/result.index', result.index);
+	      window.marker && console.log('iterateCells/result.value', result.value);
+
+	      // if (utils.isFunction(callback)) {
+	      //   return callback.apply(callback, [result]);
+	      // } else {
+	        return result;
+	      // }
+	    },
+
+	    /**
+	     * Get cell range values
+	     *
+	     * @param {String} start cell A1
+	     * @param {String} end cell B3
+	     * @returns {Array}
+	     *
+	     * PARSER callback
+	     */
+	    cellRangeValue: function (start, end) {
+	      window.marker && console.error('cellRangeValue/call', arguments);
+	      // console.log('cellRangeValue', arguments);
+	      var coordsStart = utils.cellCoords(start),
+	          coordsEnd = utils.cellCoords(end),
+	          formulaItem = this;
+
+	      // iterate cells to get values and indexes
+	      var cells = helper.iterateCells.call(this, coordsStart, coordsEnd),
+	          result = cells.value;
+
+	      window.marker && console.log('cellRangeValue/cells', result);
+
+	      // update dependencies
+	      var flatDeps = _.flatten(cells.index);
+	      matrix.updateItem(formulaItem, {
+	        deps: flatDeps
+	      });
+
+	      // result.push(cells.value);
+	      return result;
+	    },
+
+	    /**
+	     * Get fixed cell value
+	     *
+	     * @param {String} id
+	     * @returns {*}
+	     *
+	     * PARSER callback
+	     */
+	    fixedCellValue: function (id) {
+	      window.marker && console.error('fixedCellValue', arguments);
+	      // console.log('fixedCellValue', arguments);
+	      id = id.replace(/\$/g, '');
+	      return helper.cellValue.call(this, id);
+	    },
+
+	    /**
+	     * Get fixed cell range values
+	     *
+	     * @param {String} start
+	     * @param {String} end
+	     * @returns {Array}
+	     *
+	     * PARSER callback
+	     */
+	    fixedCellRangeValue: function (start, end) {
+	      window.marker && console.error('fixedCellRangeValue', arguments);
+	      // console.log('fixedCellRangeValue', arguments);
+	      start = start.replace(/\$/g, '');
+	      end = end.replace(/\$/g, '');
+
+	      return helper.cellRangeValue.call(this, start, end);
+	    },
+
+	    isArray: _.isArray,
+
+	  };
+
+	  return helper;
+	};
+
+	module.exports = ParserDelegate;
+
+
+/***/ },
+/* 28 */
+/***/ function(module, exports, __webpack_require__) {
+
+	var _ = __webpack_require__(2);
+	var utils = __webpack_require__(4);
+
+	/**
+	 * Matrix collection for each form, contains cache of all items in the dataSource
+	 *
+	 * @param {Object} matrixDelegate Should have .parse()
+	 */
+	var Matrix = function (matrixDelegate) {
+	  var instance = this;
+
+	  /**
+	   * Single item (cell) object
+	   *
+	   * @type {{id: string, formula: string, value: string, error: string, deps: Array}}
+	   */
+	  var item = {
+	    id:      '',
+	    formula: '',
+	    value:   '',
+	    error:   '',
+	    deps:    []
+	  };
+
+	  /**
+	   * Data store
+	   *
+	   * @type {Object}
+	   */
+	  instance.data = Object.create(null);
+
+	  /**
+	   * Calculate item formula
+	   *
+	   * @param   {String} formula
+	   * @param   {item}   reference item
+	   * @returns {item}   the updated item
+	   */
+	  var calculateItemFormula = function (item) {
+	    if (! item.formula) {
+	      return item;
+	    }
+	    var parsed = matrixDelegate.parse(item.formula, item);
+	    return instance.updateItem(item, parsed);
+	  };
+
+	  /**
+	   * Recalculates all matrix formulas
+	   * @returns {Array}
+	   */
+	  this.recalculate = function () {
+	    return _.forEach(instance.data, calculateItemFormula);
+	  };
+
+	  /**
+	   * Recalculates a set of items in the matrix
+	   * @param   {Array} itemIds
+	   * @returns {Array}
+	   */
+	  this.recalculateItems = function (itemIds) {
+	    return _.map(itemIds, function(id) {
+	      var item = instance.getItem(id);
+	      if (! item) {
+	        throw new Error('No item with id: ' + id);
+	      }
+	      return calculateItemFormula(item);
+	    });
+	  };
+
+	  /**
+	   * Get item from data store
+	   *
+	   * @param   {String} id
+	   * @returns {Item}
+	   */
+	  this.getItem = function (id) {
+	    return instance.data[id];
+	  };
+
+	  /**
+	   * Returns a shallow copy of the data store
+	   *
+	   * @return {Object}
+	   */
+	  this.getAllItems = function () {
+	    return instance.data;
+	  };
+
+	  /**
+	   * Remove item from data array
+	   *
+	   * @param {String} id
+	   */
+	  this.removeItem = function (id) {
+	    instance.data = _.filter(instance.data, function (item) {
+	      return item.id !== id;
+	    });
+	  };
+
+	  /**
+	   * Remove items from data array in col
+	   *
+	   * @param {Number} col
+	   */
+	  this.removeItemsInCol = function (col) {
+	    instance.data = _.filter(instance.data, function (item) {
+	      return item.col !== col;
+	    });
+	  };
+
+	  /**
+	   * Remove items from data array in row
+	   *
+	   * @param {Number} row
+	   */
+	  this.removeItemsInRow = function (row) {
+	    instance.data = _.filter(instance.data, function (item) {
+	      return item.row !== row;
+	    })
+	  };
+
+	  /**
+	   * Remove items from data array below col
+	   *
+	   * @param col
+	   */
+	  this.removeItemsBelowCol = function (col) {
+	    instance.data = _.filter(instance.data, function (item) {
+	      return item.col < col;
+	    });
+	  };
+
+	  /**
+	   * Remove items from data array below row
+	   *
+	   * @param row
+	   */
+	  this.removeItemsBelowRow = function (row) {
+	    instance.data = _.filter(instance.data, function (item) {
+	      return item.row < row;
+	    })
+	  };
+
+	  /**
+	   * Update item properties
+	   *
+	   * @param {Object|String} item or id
+	   * @param {Object} props
+	   * @returns {item} the updated item
+	   */
+	  this.updateItem = function (item, props) {
+	    if (utils.isString(item)) {
+	      item = instance.getItem(item);
+	    }
+
+	    if (item && props) {
+	      for (var p in props) {
+	        if (item[p] && utils.isArray(item[p])) {
+	          if (utils.isArray(props[p])) {
+	            _.forEach(props[p], function (i) {
+	              if (item[p].indexOf(i) === -1) {
+	                item[p].push(i);
+	              }
+	            });
+	          } else {
+	            if (item[p].indexOf(props[p]) === -1) {
+	              item[p].push(props[p]);
+	            }
+	          }
+	        } else {
+	          item[p] = props[p];
+	        }
+	      }
+	    }
+
+	    return item;
+	  };
+
+	  /**
+	   * Add item to data array
+	   *
+	   * @param {Object} item
+	   */
+	  this.addItem = function (item) {
+	    var cellId = item.id,
+	        existingCell = instance.getItem(cellId);
+
+	    if (! utils.isSet(item.row) || ! utils.isSet(item.col)) {
+	      var coords = utils.cellCoords(cellId);
+	      // TODO: Make immutable
+	      item.row = coords.row;
+	      item.col = coords.col;
+	    }
+
+	    if (! existingCell) {
+	      instance.data[cellId] = item;
+	    } else {
+	      instance.updateItem(existingCell, item);
+	    }
+
+	    return existingCell || item;
+	  };
+
+	  /**
+	   * Get references items to column
+	   *
+	   * @param {Number} col
+	   * @returns {Array}
+	   *
+	   * TODO: remove if not used
+	   */
+	  /*
+	  this.getRefItemsToColumn = function (col) {
+	    var result = [];
+
+	    if (!instance.data.length) {
+	      return result;
+	    }
+
+	    _.forEach(instance.data, function (item) {
+	      if (item.deps) {
+	        var deps = _.filter(item.deps, function (cell) {
+
+	          var alpha = utils.getCellAlphaNum(cell).alpha,
+	            num = utils.toNum(alpha);
+
+	          return num >= col;
+	        });
+
+	        if (deps.length > 0 && result.indexOf(item.id) === -1) {
+	          result.push(item.id);
+	        }
+	      }
+	    });
+
+	    return result;
+	  };
+	  */
+
+	  /**
+	   * Get references items to row
+	   *
+	   * @param {Number} row
+	   * @returns {Array}
+	   *
+	   * TODO: remove if not used
+	   */
+	  /*
+	  this.getRefItemsToRow = function (row) {
+	    var result = [];
+
+	    if (!instance.data.length) {
+	      return result;
+	    }
+
+	    _.forEach(instance.data, function (item) {
+	      if (item.deps) {
+	        var deps = _.filter(item.deps, function (cell) {
+	          var num = utils.getCellAlphaNum(cell).num;
+	          return num > row;
+	        });
+
+	        if (deps.length > 0 && result.indexOf(item.id) === -1) {
+	          result.push(item.id);
+	        }
+	      }
+	    });
+
+	    return result;
+	  };
+	  */
+
+	  this.getItemsWithDependencies = function () {
+	    // TODO: return instance.dataWithDeps or recreate it if empty
+	    return instance.data;
+	  };
+
+	  /**
+	   * Get dependencies by id
+	   *
+	   * @param {String} id
+	   * @returns {Array}
+	   */
+	  var getDependencies = function (id) {
+	    // console.log('getDependencies', arguments);
+	    var deps = [];
+
+	    _.forEach(instance.getItemsWithDependencies(), function (item) {
+	      // match only items with dependencies
+	      // make sure the id is in the item's dependencies list
+	      // make sure the item's id is not already part of the new dependencies list
+	      if (item.deps && item.deps.length && item.deps.indexOf(id) > -1 && deps.indexOf(item.id) === -1) {
+	        deps.push(item.id);
+	      }
+	    });
+	    // console.log('deps', deps);
+
+	    return deps;
+	  };
+
+	  /**
+	   * Get all dependencies
+	   *
+	   * @param {String} id
+	   */
+	  var getDependenciesDeep = function (id, accumulator) {
+	    // console.log('getDependenciesDeep', arguments);
+
+	    _.forEach(getDependencies(id), function (refId) {
+	      if (accumulator.indexOf(refId) !== -1) {
+	        return;
+	      }
+
+	      accumulator.push(refId);
+
+	      var item = instance.getItem(refId);
+	      if (item.deps && item.deps.length) {
+	        getDependenciesDeep(refId, accumulator);
+	      }
+	    });
+
+	    return accumulator;
+	  };
+
+	  /**
+	   * Get cell dependencies
+	   *
+	   * @param {String} id
+	   * @returns {Array}
+	   */
+	  this.getDependencies = function (id) {
+	    // console.log('matrix.getDependencies', arguments);
+	    return getDependenciesDeep(id, []);
+	  };
+
+	  /**
+	   * [depsInFormula description]
+	   * @param  {item} item
+	   * @return {*}         An array of dependants or false
+	   */
+	  this.depsInFormula = function (item) {
+
+	    var formula = item.formula,
+	        deps = item.deps;
+
+	    if (deps) {
+	      deps = _.filter(deps, function (id) {
+	        return formula.indexOf(id) !== -1;
+	      });
+
+	      return deps.length > 0;
+	    }
+
+	    return false;
+	  };
+
+	  /**
+	   * Scan the dataSource and build the calculation matrix
+	   *
+	   * @param {Array} dataSource array of arrays
+	   */
+	  this.scan = function (dataSource) {
+	    _.forEach(dataSource, function (row, j) {
+	      _.forEach(row, function (data, k) {
+	        var id = utils.translateCellCoords({row: j, col: k}),
+	            formula = null,
+	            value = null;
+
+	        if (utils.isFormula(data)) {
+	          formula = data.substr(1);
+	        } else {
+	          value = data;
+	        }
+
+	        instance.addItem({
+	          id: id,
+	          row: j,
+	          col: k,
+	          value: value,
+	          formula: formula
+	        });
+	      });
+	    });
+	  };
+	};
+
+	module.exports = Matrix;
 
 
 /***/ }
