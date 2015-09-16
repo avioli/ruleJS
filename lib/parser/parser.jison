@@ -67,7 +67,7 @@ expressions
 
 expression
     : variableSequence {
-        $$ = yy.handler.helper.callVariable.call(this, $1);
+        $$ = yy.handler.callVariable.call(this, $1);
       }
     | TIME_AMPM {
         $$ = yy.handler.time.call(yy.obj, $1, true);
@@ -76,72 +76,72 @@ expression
         $$ = yy.handler.time.call(yy.obj, $1);
       }
     | number {
-        $$ = yy.handler.helper.number($1);
+        $$ = yy.handler.number($1);
       }
     | STRING {
-        $$ = yy.handler.helper.string($1);
+        $$ = yy.handler.string($1);
       }
     | expression '&' expression {
-        $$ = yy.handler.helper.specialMatch('&', $1, $3);
+        $$ = yy.handler.specialMatch('&', $1, $3);
       }
     | expression '=' expression {
-        $$ = yy.handler.helper.logicMatch('=', $1, $3);
+        $$ = yy.handler.logicMatch('=', $1, $3);
       }
     | expression '+' expression {
-        $$ = yy.handler.helper.mathMatch('+', $1, $3);
+        $$ = yy.handler.mathMatch('+', $1, $3);
       }
     | '(' expression ')' {
-        $$ = yy.handler.helper.number($2);
+        $$ = yy.handler.number($2);
       }
     | expression '<' '=' expression {
-        $$ = yy.handler.helper.logicMatch('<=', $1, $4);
+        $$ = yy.handler.logicMatch('<=', $1, $4);
       }
     | expression '>' '=' expression {
-        $$ = yy.handler.helper.logicMatch('>=', $1, $4);
+        $$ = yy.handler.logicMatch('>=', $1, $4);
       }
 	  | expression '<' '>' expression {
-	      $$ = yy.handler.helper.logicMatch('<>', $1, $4);
+	      $$ = yy.handler.logicMatch('<>', $1, $4);
       }
     | expression NOT expression {
-        $$ = yy.handler.helper.logicMatch('NOT', $1, $3);
+        $$ = yy.handler.logicMatch('NOT', $1, $3);
       }
     | expression '>' expression {
-        $$ = yy.handler.helper.logicMatch('>', $1, $3);
+        $$ = yy.handler.logicMatch('>', $1, $3);
       }
     | expression '<' expression {
-        $$ = yy.handler.helper.logicMatch('<', $1, $3);
+        $$ = yy.handler.logicMatch('<', $1, $3);
       }
     | expression '-' expression {
-        $$ = yy.handler.helper.mathMatch('-', $1, $3);
+        $$ = yy.handler.mathMatch('-', $1, $3);
       }
     | expression '*' expression {
-        $$ = yy.handler.helper.mathMatch('*', $1, $3);
+        $$ = yy.handler.mathMatch('*', $1, $3);
       }
     | expression '/' expression {
-        $$ = yy.handler.helper.mathMatch('/', $1, $3);
+        $$ = yy.handler.mathMatch('/', $1, $3);
       }
     | expression '^' expression {
-        $$ = yy.handler.helper.mathMatch('^', $1, $3);
+        $$ = yy.handler.mathMatch('^', $1, $3);
       }
     | '-' expression {
-        var n1 = yy.handler.helper.numberInverted($2);
+        var n1 = yy.handler.numberInverted($2);
         $$ = n1;
         if (isNaN($$)) {
             $$ = 0;
         }
       }
     | '+' expression {
-        var n1 = yy.handler.helper.number($2);
+        var n1 = yy.handler.number($2);
         $$ = n1;
         if (isNaN($$)) {
             $$ = 0;
         }
       }
     | FUNCTION '(' ')' {
-        $$ = yy.handler.helper.callFunction.call(this, $1, '');
+        $$ = yy.handler.callFunction.call(this, $1, '');
       }
     | FUNCTION '(' expseq ')' {
-        $$ = yy.handler.helper.callFunction.call(this, $1, $3);
+        $$ = yy.handler.callFunction.call(this, $1, $3);
       }
     | cell
     | error
@@ -150,28 +150,29 @@ expression
 
 cell
    : FIXEDCELL {
-      $$ = yy.handler.helper.fixedCellValue.call(yy.obj, $1);
+      $$ = yy.handler.fixedCellValue.call(yy.obj, $1);
     }
   | FIXEDCELL ':' FIXEDCELL {
-      $$ = yy.handler.helper.fixedCellRangeValue.call(yy.obj, $1, $3);
+      $$ = yy.handler.fixedCellRangeValue.call(yy.obj, $1, $3);
     }
   | CELL {
-      $$ = yy.handler.helper.cellValue.call(yy.obj, $1);
+      $$ = yy.handler.cellValue.call(yy.obj, $1);
     }
   | CELL ':' CELL {
-      $$ = yy.handler.helper.cellRangeValue.call(yy.obj, $1, $3);
+      $$ = yy.handler.cellRangeValue.call(yy.obj, $1, $3);
     }
 ;
 
 expseq
   : expression {
-      if (yy.handler.utils.isArray($1)) {
-        $$ = $1;
-      } else {
+      // if (yy.handler.isArray($1)) {
+      //   $$ = $1;
+      // } else {
         $$ = [$1];
-      }
+      // }
     }
   | ARRAY {
+      console && console.warning && console.warn('EVAL');
       var result = [],
           arr = eval("[" + yytext + "]");
 
@@ -196,7 +197,7 @@ variableSequence
       $$ = [$1];
     }
 	| variableSequence DECIMAL VARIABLE {
-      $$ = (yy.handler.utils.isArray($1) ? $1 : [$1]);
+      $$ = (yy.handler.isArray($1) ? $1 : [$1]);
       $$.push($3);
     }
 ;
